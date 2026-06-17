@@ -22,10 +22,17 @@ from langgraph.prebuilt import create_react_agent
 # 프로젝트 루트의 .env 로드
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Tools import
+# Tools import (같은 폴더)
 from agents.material_cost.material_price_tool import search_material_price, list_material_categories
 from agents.material_cost.quantity_calculator import calculate_quantity_change_cost, calculate_total_material_cost
-from rag.company_docs.search import search_contract_price, list_contract_documents
+
+# RAG 계약단가 툴 (없으면 건너뜀)
+_rag_tools = []
+try:
+    from rag.company_docs.search import search_contract_price, list_contract_documents
+    _rag_tools = [search_contract_price, list_contract_documents]
+except ImportError:
+    pass
 
 
 # ── 시스템 프롬프트 ──────────────────────────────────────────────
@@ -96,8 +103,7 @@ def create_material_cost_agent():
         list_material_categories,
         calculate_quantity_change_cost,
         calculate_total_material_cost,
-        search_contract_price,
-        list_contract_documents,
+        *_rag_tools,
     ]
 
     agent = create_react_agent(
@@ -160,7 +166,6 @@ def run_material_cost_agent(user_query: str, verbose: bool = True) -> dict:
 
 # ── 직접 실행 테스트 ──────────────────────────────────────────────
 if __name__ == "__main__":
-    # 테스트할 질의를 아래에서 선택 (index 변경)
     test_queries = [
         # [0] 기본 - 추가 물량 자재비 계산
         "이번 공정에서 ㄱ형강이 추가로 500ton 필요한데, 이에 따른 추가비용 계산해줘.",
@@ -174,7 +179,5 @@ if __name__ == "__main__":
         "철근은 시황성 자재야? 현재 단가도 알려줘.",
     ]
 
-    # 테스트할 번호 선택 (0~4)
     TEST_INDEX = 2
-
     run_material_cost_agent(test_queries[TEST_INDEX], verbose=True)
