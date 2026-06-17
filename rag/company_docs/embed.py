@@ -1,10 +1,10 @@
 """
-사내 문서 (계약서/견적서/기성청구서) → 텍스트 추출 → 청킹 → 임베딩 → ChromaDB 저장
+사내 문서 (계약서/견적서/기성청구서) → 텍스트 추출 → 청킹 → 임베딩 → PostgreSQL(pgvector) 저장
 지원 포맷: PDF, Excel (.xlsx), Word (.docx)
 
 실행:
   python rag/company_docs/embed.py              # 전체 문서 (재)임베딩
-  python rag/company_docs/embed.py --reset      # 컬렉션 초기화 후 전체 재임베딩
+  python rag/company_docs/embed.py --reset      # 테이블 초기화 후 전체 재임베딩
   python rag/company_docs/embed.py --file 송파아파트_원가견적서_2023.xlsx  # 단일 파일 추가
 """
 
@@ -19,19 +19,33 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env")
 
-import chromadb
+import psycopg2
+from pgvector.psycopg2 import register_vector
 from langchain_aws import BedrockEmbeddings
 
 # ── 설정 ──────────────────────────────────────────────────────────
-DOCS_DIR        = PROJECT_ROOT / "data" / "raw" / "company_docs"
-VECTORDB_PATH   = Path(__file__).parent / "vectordb"
-EMBED_MODEL     = "amazon.titan-embed-text-v2:0"
-COLLECTION_NAME = "company_docs"
-COMPANY_ID      = "대성물산"
+DOCS_DIR      = PROJECT_ROOT / "data" / "raw" / "company_docs"
+EMBED_MODEL   = "amazon.titan-embed-text-v2:0"
+COMPANY_ID    = "대성물산"
+VECTOR_DIM    = 1024
 
 CHUNK_SIZE    = 500
 CHUNK_OVERLAP = 80
 MIN_CHUNK_LEN = 50
+
+DB_CONFIG = {
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     os.getenv("DB_PORT", "5432"),
+    "dbname":   os.getenv("DB_NAME", "material_cost"),
+    "user":     os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", ""),
+}
+
+
+def get_connection():
+    conn = psycopg2.connect(**DB_CONFIG)
+    register_vector(conn)
+    return conn
 
 
 # ── 파일명 → 메타데이터 파싱 ──────────────────────────────────────
@@ -112,7 +126,6 @@ EXTRACTORS = {"pdf": extract_pdf, "xlsx": extract_xlsx, "docx": extract_docx}
 # ── 청킹 ─────────────────────────────────────────────────────────
 
 def chunk_text(text: str) -> list[str]:
-    # 계약서 조항(제N조) 기준 1차 분리 → 이후 슬라이딩 윈도우
     sections = re.split(r'(?=제\d+조)', text)
     chunks = []
     for section in sections:
@@ -132,26 +145,36 @@ def chunk_text(text: str) -> list[str]:
     return chunks
 
 
-# ── ChromaDB 헬퍼 ─────────────────────────────────────────────────
+# ── DB 초기화 ─────────────────────────────────────────────────────
 
-def get_collection(reset: bool = False):
-    client = chromadb.PersistentClient(path=str(VECTORDB_PATH))
+def init_table(conn, reset: bool = False):
+    cur = conn.cursor()
+    cur.execute("CREATE SCHEMA IF NOT EXISTS rag")
     if reset:
-        try:
-            client.delete_collection(COLLECTION_NAME)
-            print(f"[INFO] 컬렉션 초기화 완료")
-        except Exception:
-            pass
-    try:
-        return client.get_collection(COLLECTION_NAME)
-    except Exception:
-        print(f"[INFO] 컬렉션 '{COLLECTION_NAME}' 신규 생성")
-        return client.create_collection(COLLECTION_NAME)
+        cur.execute("DROP TABLE IF EXISTS rag.company_docs")
+        print("[INFO] 테이블 초기화 완료")
+    cur.execute(f"""
+        CREATE TABLE IF NOT EXISTS rag.company_docs (
+            id            TEXT PRIMARY KEY,
+            company_id    TEXT,
+            project_id    TEXT,
+            doc_type      TEXT,
+            year          TEXT,
+            file_name     TEXT,
+            file_format   TEXT,
+            chunk_index   INTEGER,
+            content       TEXT,
+            embedding     vector({VECTOR_DIM})
+        )
+    """)
+    conn.commit()
+    cur.close()
+    print("[INFO] rag.company_docs 테이블 준비 완료")
 
 
 # ── 단일 파일 임베딩 ──────────────────────────────────────────────
 
-def embed_file(file_path: Path, collection, embedder):
+def embed_file(file_path: Path, conn, embedder):
     fmt = file_path.suffix.lower().lstrip(".")
     if fmt not in EXTRACTORS:
         print(f"  [SKIP] 지원하지 않는 형식: {file_path.name}")
@@ -175,30 +198,33 @@ def embed_file(file_path: Path, collection, embedder):
         return 0
 
     meta = parse_meta(file_path.name)
+    cur = conn.cursor()
 
-    # 기존에 같은 파일 데이터가 있으면 삭제 후 재삽입 (--file 옵션으로 개별 추가 시)
-    existing = collection.get(where={"file_name": file_path.name})
-    if existing["ids"]:
-        collection.delete(ids=existing["ids"])
-        print(f"  [INFO] 기존 {len(existing['ids'])}개 청크 삭제 후 재삽입")
+    # 기존 데이터 삭제
+    cur.execute("DELETE FROM rag.company_docs WHERE file_name = %s", (file_path.name,))
+    deleted = cur.rowcount
+    if deleted:
+        print(f"  [INFO] 기존 {deleted}개 청크 삭제 후 재삽입")
 
     embeddings = embedder.embed_documents(chunks)
 
-    collection.add(
-        ids=[f"{COMPANY_ID}_{file_path.stem}_{i}" for i in range(len(chunks))],
-        embeddings=embeddings,
-        documents=chunks,
-        metadatas=[{
-            "company_id":  COMPANY_ID,
-            "project_id":  meta["project_id"],
-            "doc_type":    meta["doc_type"],
-            "year":        meta["year"],
-            "file_name":   file_path.name,
-            "file_format": fmt,
-            "chunk_index": i,
-        } for i in range(len(chunks))],
-    )
+    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+        chunk_id = f"{COMPANY_ID}_{file_path.stem}_{i}"
+        cur.execute("""
+            INSERT INTO rag.company_docs
+                (id, company_id, project_id, doc_type, year, file_name, file_format, chunk_index, content, embedding)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                content   = EXCLUDED.content,
+                embedding = EXCLUDED.embedding
+        """, (
+            chunk_id, COMPANY_ID,
+            meta["project_id"], meta["doc_type"], meta["year"],
+            file_path.name, fmt, i, chunk, emb,
+        ))
 
+    conn.commit()
+    cur.close()
     print(f"  → 저장 완료")
     return len(chunks)
 
@@ -207,7 +233,7 @@ def embed_file(file_path: Path, collection, embedder):
 
 def main():
     parser = argparse.ArgumentParser(description="사내 문서 임베딩")
-    parser.add_argument("--reset", action="store_true", help="컬렉션 초기화 후 전체 재임베딩")
+    parser.add_argument("--reset", action="store_true", help="테이블 초기화 후 전체 재임베딩")
     parser.add_argument("--file",  type=str, default=None,
                         help="단일 파일만 추가/갱신 (파일명만 입력, 예: 송파아파트_원가견적서_2023.xlsx)")
     args = parser.parse_args()
@@ -216,30 +242,37 @@ def main():
         model_id=EMBED_MODEL,
         region_name=os.getenv("AWS_BEDROCK_REGION", "us-east-1"),
     )
-    collection = get_collection(reset=args.reset)
+    conn = get_connection()
+    init_table(conn, reset=args.reset)
 
     if args.file:
-        # 단일 파일 추가
         file_path = DOCS_DIR / args.file
         if not file_path.exists():
             print(f"[ERROR] 파일 없음: {file_path}")
+            conn.close()
             return
-        embed_file(file_path, collection, embedder)
+        embed_file(file_path, conn, embedder)
     else:
-        # 전체 문서 처리
         files = sorted(
             f for f in DOCS_DIR.iterdir()
             if f.suffix.lower() in (".pdf", ".xlsx", ".docx") and not f.name.startswith("~")
         )
         if not files:
             print(f"[WARN] 처리할 파일 없음: {DOCS_DIR}")
+            conn.close()
             return
 
         total = 0
         for f in files:
-            total += embed_file(f, collection, embedder)
+            total += embed_file(f, conn, embedder)
 
-        print(f"\n[완료] 총 {total}개 청크 / 컬렉션 전체: {collection.count()}개")
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM rag.company_docs")
+        total_in_db = cur.fetchone()[0]
+        cur.close()
+        print(f"\n[완료] 총 {total}개 청크 / DB 전체: {total_in_db}개")
+
+    conn.close()
 
 
 if __name__ == "__main__":

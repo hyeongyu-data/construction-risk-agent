@@ -1,5 +1,5 @@
 boto3
-chromadb
+pgvector
 httpx
 langchain
 langchain-aws
