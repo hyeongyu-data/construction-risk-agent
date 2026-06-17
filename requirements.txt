@@ -5,8 +5,10 @@ langchain
 langchain-aws
 langchain-community
 langgraph
+openpyxl
 pandas
 pdfplumber
 psycopg2-binary
+python-docx
 python-dotenv
 pyyaml
