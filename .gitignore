@@ -1,5 +1,33 @@
+@"
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+
+# 환경변수
 .env
 
-__pycache__/
+# Airflow
+airflow/logs/
 
-agents/labor_cost/__pycache__/
+# 벡터 DB / RAG
+rag/labor_cost/vectordb/
+rag/labor_cost/docs/
+
+# SQLite DB
+db/*.db
+
+# Node
+frontend/client/node_modules/
+frontend/client/build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+"@ | Set-Content .gitignore
