@@ -21,7 +21,7 @@ load_dotenv(BASE_DIR / ".env")
 # ── DB 접속 정보 (.env에서 로드) ──────────────────────────────────
 DB_HOST     = os.getenv("DB_HOST", "localhost")
 DB_PORT     = os.getenv("DB_PORT", "5432")
-DB_NAME     = os.getenv("DB_NAME", "material_cost")
+DB_NAME     = os.getenv("DB_NAME", "construction_risk")
 DB_USER     = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
