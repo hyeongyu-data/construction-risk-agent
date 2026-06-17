@@ -1,0 +1,12 @@
+boto3
+chromadb
+httpx
+langchain
+langchain-aws
+langchain-community
+langgraph
+pandas
+pdfplumber
+psycopg2-binary
+python-dotenv
+pyyaml
