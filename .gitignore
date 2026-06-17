@@ -11,9 +11,7 @@ __pycache__/
 # Airflow
 airflow/logs/
 
-# 벡터 DB / RAG
-rag/labor_cost/vectordb/
-rag/labor_cost/docs/
+
 
 # SQLite DB
 db/*.db
