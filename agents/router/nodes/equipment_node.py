@@ -15,11 +15,21 @@ from logger import get_logger
 log = get_logger(__name__)
 
 _ROUTER_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+# equipment_cost/tools.py 경로
 _EQUIP_TOOLS_PATH = os.path.abspath(
-    os.path.join(_ROUTER_ROOT, '..', 'construction_risk_agent-equipment_standby', 'agents', 'equipment_standby')
+    os.path.join(_ROUTER_ROOT, '..', 'equipment_cost')
 )
-sys.path.insert(0, _EQUIP_TOOLS_PATH)
-import tools as equip_tools
+
+equip_tools = None
+if _EQUIP_TOOLS_PATH not in sys.path:
+    sys.path.insert(0, _EQUIP_TOOLS_PATH)
+
+try:
+    import tools as equip_tools
+except ImportError:
+    log.warning(f"Failed to import tools from {_EQUIP_TOOLS_PATH} - equipment node will be unavailable")
+    equip_tools = None
 
 load_dotenv(dotenv_path=os.path.join(_ROUTER_ROOT, '.env'))
 
