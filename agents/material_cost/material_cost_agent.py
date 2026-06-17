@@ -11,19 +11,20 @@ from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
-# 프로젝트 루트를 sys.path에 추가 (tools, agents 등 상대 import용)
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# 프로젝트 루트를 sys.path에 추가
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from langchain_aws import ChatBedrock
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.prebuilt import create_react_agent
 
 # 프로젝트 루트의 .env 로드
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(PROJECT_ROOT / ".env")
 
-# Tools import
-from tools.material_price_tool import search_material_price, list_material_categories
-from tools.quantity_calculator import calculate_quantity_change_cost, calculate_total_material_cost
+# Tools import (같은 폴더)
+from agents.material_cost.material_price_tool import search_material_price, list_material_categories
+from agents.material_cost.quantity_calculator import calculate_quantity_change_cost, calculate_total_material_cost
 
 
 # ── 시스템 프롬프트 ──────────────────────────────────────────────
