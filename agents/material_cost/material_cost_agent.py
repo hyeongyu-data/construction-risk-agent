@@ -22,9 +22,10 @@ from langgraph.prebuilt import create_react_agent
 # 프로젝트 루트의 .env 로드
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Tools import (같은 폴더)
+# Tools import
 from agents.material_cost.material_price_tool import search_material_price, list_material_categories
 from agents.material_cost.quantity_calculator import calculate_quantity_change_cost, calculate_total_material_cost
+from rag.company_docs.search import search_contract_price, list_contract_documents
 
 
 # ── 시스템 프롬프트 ──────────────────────────────────────────────
@@ -37,10 +38,11 @@ SYSTEM_PROMPT = """당신은 건설 공사 현장의 자재 단가 계산 전문
 
 ## 처리 절차
 1. 사용자 질문에서 자재명과 추가 물량을 파악합니다.
-2. `search_material_price` Tool로 자재 단가를 조회합니다.
-3. `calculate_quantity_change_cost` Tool로 추가비용을 계산합니다.
-4. 여러 자재가 있으면 `calculate_total_material_cost`로 합산합니다.
-5. 결과를 공무용 리포트로 정리합니다.
+2. `search_material_price` Tool로 조달청 현재 단가를 조회합니다.
+3. `search_contract_price` Tool로 사내 과거 계약단가(전체 공사별)를 조회합니다.
+4. `calculate_quantity_change_cost` Tool로 추가비용을 계산합니다.
+5. 여러 자재가 있으면 `calculate_total_material_cost`로 합산합니다.
+6. 결과를 공무용 리포트로 정리합니다.
 
 ## 리포트 형식
 계산 완료 후 반드시 아래 형식으로 출력하세요:
@@ -56,7 +58,8 @@ SYSTEM_PROMPT = """당신은 건설 공사 현장의 자재 단가 계산 전문
 | 자재명 | [자재명] |
 | 단위 | [단위] |
 | 현재단가 (조달청) | [금액]원 |
-| 계약단가 | [금액]원 / 미확인 |
+| 공사별 계약단가 | [공사명 연도: 금액원, 공사명 연도: 금액원, ...] |
+| 계약단가 평균 | [평균금액]원 (N개 공사 기준) / 미확인 |
 | 시황성 자재 여부 | 예/아니오 |
 
 ### 추가비용 계산
@@ -93,6 +96,8 @@ def create_material_cost_agent():
         list_material_categories,
         calculate_quantity_change_cost,
         calculate_total_material_cost,
+        search_contract_price,
+        list_contract_documents,
     ]
 
     agent = create_react_agent(
