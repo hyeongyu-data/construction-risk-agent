@@ -1,4 +1,3 @@
-import sqlite3
 import os
 import logging
 import math
@@ -9,8 +8,6 @@ import psycopg2
 from pgvector.psycopg2 import register_vector
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
-
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'db', 'labor_cost.db')
 
 DB_CONFIG = {
     "host":     os.getenv("DB_HOST", "localhost"),
@@ -42,16 +39,17 @@ def get_labor_price(job_type: str) -> str:
     예: 콘크리트공, 철근공, 보통인부, 형틀목공, 방수공, 철골공
     부분 일치 검색이 가능하므로 직종명 일부만 입력해도 된다.
     '''
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
+    conn = _get_pg_connection()
+    cur = conn.cursor()
+    cur.execute("""
         SELECT job_type, price, year
-        FROM labor_cost
-        WHERE job_type LIKE ?
+        FROM labor_cost.labor_cost
+        WHERE job_type LIKE %s
         ORDER BY year DESC
         LIMIT 1
     """, (f'%{job_type}%',))
-    res = cursor.fetchone()
+    res = cur.fetchone()
+    cur.close()
     conn.close()
 
     if res is None:
