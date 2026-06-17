@@ -1,0 +1,73 @@
+"""API 요청/응답 모델 (Pydantic)"""
+
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from datetime import datetime
+
+
+# ── Projects ──────────────────────────────────────────────────────
+
+class ProjectCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    description: Optional[str] = None
+
+
+class Project(BaseModel):
+    id: str
+    name: str
+    description: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Conversations ─────────────────────────────────────────────────
+
+class ConversationCreate(BaseModel):
+    title: Optional[str] = "새로운 대화"
+
+
+class ConversationUpdate(BaseModel):
+    title: str = Field(..., min_length=1)
+
+
+class Conversation(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Messages ──────────────────────────────────────────────────────
+
+class Message(BaseModel):
+    role: str  # 'user' | 'assistant'
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MessageList(BaseModel):
+    messages: List[Message]
+
+
+# ── Chat ──────────────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+
+
+class ChatResponse(BaseModel):
+    content: str
+
+
+# ── Health ────────────────────────────────────────────────────────
+
+class HealthResponse(BaseModel):
+    status: str
