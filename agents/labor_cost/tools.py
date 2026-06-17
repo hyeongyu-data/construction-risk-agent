@@ -41,25 +41,41 @@ def get_labor_price(job_type: str) -> str:
     '''
     conn = _get_pg_connection()
     cur = conn.cursor()
+
+    # 1순위: 정확히 일치하는 직종명
     cur.execute("""
         SELECT job_type, price, year
         FROM labor_cost.labor_cost
-        WHERE job_type LIKE %s
+        WHERE job_type = %s
         ORDER BY year DESC
         LIMIT 1
-    """, (f'%{job_type}%',))
+    """, (job_type,))
     res = cur.fetchone()
+
+    # 2순위: 정확 일치 없으면 LIKE 검색 후 이름 길이가 가장 짧은 것 (가장 구체적인 매칭)
+    if res is None:
+        cur.execute("""
+            SELECT job_type, price, year
+            FROM labor_cost.labor_cost
+            WHERE job_type LIKE %s
+            ORDER BY year DESC, LENGTH(job_type) ASC
+            LIMIT 1
+        """, (f'%{job_type}%',))
+        res = cur.fetchone()
+
     cur.close()
     conn.close()
 
     if res is None:
-        return 'DB에 없는 직종입니다.'
+        return f'DB에 없는 직종입니다: "{job_type}". 직종명을 다시 확인하세요.'
 
     logging.info(f'get_labor_price tool 실행: {res}')
     return f'노임단가 DB 조회 결과: {res[0]}: {res[1]:,}원 ({res[2]} 기준)'
 
 
 # 2. 표준품셈 RAG 검색 툴
+SIMILARITY_THRESHOLD = 0.45  # 코사인 거리 임계값 (0~2, 낮을수록 유사. 0.45 이하만 채택)
+
 @tool
 def search_standard_spec(query: str) -> str:
     '''
@@ -73,20 +89,29 @@ def search_standard_spec(query: str) -> str:
     conn = _get_pg_connection()
     cur  = conn.cursor()
     cur.execute("""
-        SELECT content
+        SELECT content, embedding <=> %s::vector AS distance
         FROM rag.standard_spec
-        ORDER BY embedding <=> %s::vector
+        ORDER BY distance
         LIMIT 5
     """, [query_vector])
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
-    chunks = [row[0] for row in rows]
-    if not chunks:
+    # 임계값 이하 청크만 채택
+    filtered = [(content, dist) for content, dist in rows if dist <= SIMILARITY_THRESHOLD]
+
+    if not filtered:
+        # 임계값 초과 시 가장 유사한 1개만 경고와 함께 반환
+        if rows:
+            best_content, best_dist = rows[0]
+            logging.warning(f'search_standard_spec: 임계값 초과 (최소 거리={best_dist:.3f}), 최상위 1개만 반환')
+            return f'[주의: 검색 유사도가 낮습니다(거리={best_dist:.2f}). 아래 내용이 질문과 다를 수 있습니다.]\n\n{best_content}'
         return '표준품셈에서 관련 내용을 찾지 못했습니다.'
 
-    logging.info(f'search_standard_spec tool 실행: query={query}, chunks={len(chunks)}개')
+    chunks = [content for content, _ in filtered]
+    distances = [dist for _, dist in filtered]
+    logging.info(f'search_standard_spec: query={query}, {len(chunks)}개 채택 (거리: {[f"{d:.3f}" for d in distances]})')
     return '\n\n'.join(chunks)
 
 
