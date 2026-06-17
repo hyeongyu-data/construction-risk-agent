@@ -1,30 +1,44 @@
 """
 Material Price Tool
-- SQLite DB에서 자재명으로 단가를 조회하는 LangChain Tool
+- PostgreSQL DB에서 자재명으로 단가를 조회하는 LangChain Tool
 - 퍼지 검색(유사 자재명 매칭) 지원
 """
 
+import os
 import json
-import sqlite3
 import difflib
 from pathlib import Path
+from dotenv import load_dotenv
+
+import psycopg2
+import psycopg2.extras
 from langchain_core.tools import tool
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DB_PATH = BASE_DIR / "db" / "material_cost.db"
+load_dotenv(BASE_DIR / ".env")
 
-# 계약단가 샘플 DB (팀원 B의 Project Context DB가 준비되면 경로 교체)
-CONTRACT_DB_PATH = BASE_DIR / "db" / "contract_prices.db"
+# ── DB 접속 정보 ──────────────────────────────────────────────────
+DB_HOST     = os.getenv("DB_HOST", "localhost")
+DB_PORT     = os.getenv("DB_PORT", "5432")
+DB_NAME     = os.getenv("DB_NAME", "material_cost")
+DB_USER     = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 
-def _get_connection() -> sqlite3.Connection:
-    if not DB_PATH.exists():
-        raise FileNotFoundError(
-            f"자재 DB가 없습니다. 먼저 `db/material_cost/init_db.py`를 실행하세요.\n경로: {DB_PATH}"
+def _get_connection() -> psycopg2.extensions.connection:
+    try:
+        return psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            cursor_factory=psycopg2.extras.RealDictCursor,
         )
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # 컬럼명으로 접근 가능
-    return conn
+    except psycopg2.OperationalError as e:
+        raise ConnectionError(
+            f"DB 접속 실패. .env의 DB_* 환경변수를 확인하세요.\n원인: {e}"
+        )
 
 
 def _fuzzy_search(query: str, top_n: int = 5) -> list[dict]:
@@ -36,9 +50,9 @@ def _fuzzy_search(query: str, top_n: int = 5) -> list[dict]:
     conn = _get_connection()
     cursor = conn.cursor()
 
-    # 1단계: LIKE 검색
+    # 1단계: LIKE 검색 (psycopg2는 %s 플레이스홀더 사용)
     cursor.execute(
-        "SELECT * FROM material_prices WHERE 자재명 LIKE ? LIMIT ?",
+        "SELECT * FROM material_prices WHERE 자재명 LIKE %s LIMIT %s",
         (f"%{query}%", top_n),
     )
     rows = [dict(row) for row in cursor.fetchall()]
@@ -49,17 +63,16 @@ def _fuzzy_search(query: str, top_n: int = 5) -> list[dict]:
 
     # 2단계: difflib 유사도 검색으로 보완
     cursor.execute("SELECT DISTINCT 자재명 FROM material_prices")
-    all_names = [r[0] for r in cursor.fetchall()]
+    all_names = [r["자재명"] for r in cursor.fetchall()]
     close_matches = difflib.get_close_matches(query, all_names, n=top_n, cutoff=0.3)
 
     if close_matches:
-        placeholders = ",".join("?" * len(close_matches))
+        placeholders = ",".join(["%s"] * len(close_matches))
         cursor.execute(
-            f"SELECT * FROM material_prices WHERE 자재명 IN ({placeholders}) LIMIT ?",
+            f"SELECT * FROM material_prices WHERE 자재명 IN ({placeholders}) LIMIT %s",
             (*close_matches, top_n),
         )
         fuzzy_rows = [dict(row) for row in cursor.fetchall()]
-        # 합치기 (중복 제거)
         existing_names = {r["자재명"] for r in rows}
         rows += [r for r in fuzzy_rows if r["자재명"] not in existing_names]
 
@@ -94,22 +107,24 @@ def search_material_price(material_name: str) -> str:
 
         # 계약단가 조회 (contract DB가 있을 때)
         contract_map = {}
-        if CONTRACT_DB_PATH.exists():
-            try:
-                contract_conn = sqlite3.connect(CONTRACT_DB_PATH)
-                contract_conn.row_factory = sqlite3.Row
-                cc = contract_conn.cursor()
-                for row in rows:
-                    cc.execute(
-                        "SELECT 계약단가, 계약유형 FROM contract_prices WHERE 자재명 LIKE ? LIMIT 1",
-                        (f"%{row['자재명'][:5]}%",),
-                    )
-                    r = cc.fetchone()
-                    if r:
-                        contract_map[row["자재명"]] = dict(r)
-                contract_conn.close()
-            except Exception:
-                pass
+        try:
+            contract_conn = psycopg2.connect(
+                host=DB_HOST, port=DB_PORT,
+                dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD,
+                cursor_factory=psycopg2.extras.RealDictCursor,
+            )
+            cc = contract_conn.cursor()
+            for row in rows:
+                cc.execute(
+                    "SELECT 계약단가, 계약유형 FROM contract_prices WHERE 자재명 LIKE %s LIMIT 1",
+                    (f"%{row['자재명'][:5]}%",),
+                )
+                r = cc.fetchone()
+                if r:
+                    contract_map[row["자재명"]] = dict(r)
+            contract_conn.close()
+        except Exception:
+            pass  # contract_prices 테이블 없으면 무시
 
         items = []
         for row in rows:
@@ -120,7 +135,7 @@ def search_material_price(material_name: str) -> str:
                 "자재분류": row.get("자재분류", "-"),
                 "품목분류": row.get("품목분류", "-"),
                 "공시일자": row.get("공시일자", "-"),
-                "시황성자재": bool(row.get("시황성자재", 0)),
+                "시황성자재": bool(row.get("시황성자재", False)),
                 "부가세여부": row.get("부가세여부", "부가가치세별도"),
             }
             if row["자재명"] in contract_map:
@@ -143,7 +158,7 @@ def search_material_price(material_name: str) -> str:
             indent=2,
         )
 
-    except FileNotFoundError as e:
+    except ConnectionError as e:
         return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
     except Exception as e:
         return json.dumps(
@@ -164,17 +179,17 @@ def list_material_categories() -> str:
         cursor.execute(
             "SELECT 자재분류, COUNT(*) as 자재수 FROM material_prices GROUP BY 자재분류 ORDER BY 자재수 DESC"
         )
-        categories = {row[0]: row[1] for row in cursor.fetchall()}
+        categories = {row["자재분류"]: row["자재수"] for row in cursor.fetchall()}
 
         sample_materials = {}
         for cat in categories:
             cursor.execute(
-                "SELECT 자재명 FROM material_prices WHERE 자재분류 = ? LIMIT 3", (cat,)
+                "SELECT 자재명 FROM material_prices WHERE 자재분류 = %s LIMIT 3", (cat,)
             )
-            sample_materials[cat] = [r[0] for r in cursor.fetchall()]
+            sample_materials[cat] = [r["자재명"] for r in cursor.fetchall()]
 
-        cursor.execute("SELECT COUNT(*) FROM material_prices")
-        total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) as cnt FROM material_prices")
+        total = cursor.fetchone()["cnt"]
         conn.close()
 
         return json.dumps(
@@ -187,5 +202,7 @@ def list_material_categories() -> str:
             ensure_ascii=False,
             indent=2,
         )
-    except FileNotFoundError as e:
+    except ConnectionError as e:
         return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"조회 오류: {str(e)}"}, ensure_ascii=False)
