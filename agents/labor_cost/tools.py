@@ -5,20 +5,32 @@ import math
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_aws import BedrockEmbeddings
-import chromadb
+import psycopg2
+from pgvector.psycopg2 import register_vector
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
-DB_PATH       = os.path.join(os.path.dirname(__file__), '..', '..', 'db', 'labor_cost.db')
-VECTORDB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'rag', 'labor_cost', 'vectordb')
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'db', 'labor_cost.db')
+
+DB_CONFIG = {
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     os.getenv("DB_PORT", "5432"),
+    "dbname":   os.getenv("DB_NAME", "material_cost"),
+    "user":     os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", ""),
+}
 
 # 상단에서 한 번만 초기화
-embedder      = BedrockEmbeddings(
+embedder = BedrockEmbeddings(
     model_id='amazon.titan-embed-text-v2:0',
     region_name=os.getenv('AWS_BEDROCK_REGION'),
 )
-chroma_client = chromadb.PersistentClient(path=VECTORDB_PATH)
-collection    = chroma_client.get_collection(name='standard_spec')
+
+
+def _get_pg_connection():
+    conn = psycopg2.connect(**DB_CONFIG)
+    register_vector(conn)
+    return conn
 
 
 # 1. 노임단가 DB 조회 툴
@@ -58,17 +70,21 @@ def search_standard_spec(query: str) -> str:
     예: "레디믹스트콘크리트 타설", "철근 조립", "철골 세우기", "방수 공사"
     인부수 산출이 필요할 때 반드시 이 툴을 먼저 호출해야 한다.
     '''
-    # 질문을 벡터로 변환
     query_vector = embedder.embed_query(query)
 
-    # ChromaDB 유사도 검색
-    results = collection.query(
-        query_embeddings=[query_vector],
-        n_results=5,
-    )
+    conn = _get_pg_connection()
+    cur  = conn.cursor()
+    cur.execute("""
+        SELECT content
+        FROM rag.standard_spec
+        ORDER BY embedding <=> %s::vector
+        LIMIT 5
+    """, [query_vector])
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
 
-    # 결과 청크 합쳐서 반환
-    chunks = results['documents'][0]
+    chunks = [row[0] for row in rows]
     if not chunks:
         return '표준품셈에서 관련 내용을 찾지 못했습니다.'
 
