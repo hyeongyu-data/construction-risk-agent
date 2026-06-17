@@ -10,3 +10,4 @@ class RiskState(TypedDict):
     equipment_response: Optional[str]
     weather_response: Optional[str]
     material_response: Optional[str]
+    final_response: Optional[str]      # 합성 노드가 만든 최종 사용자용 답변

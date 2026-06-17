@@ -50,3 +50,8 @@ ValueError: KMA_API_KEY is required. Pass api_key= argument or set KMA_API_KEY e
 2026-06-17 13:20:56,689 [DEBUG] httpcore.connection: close.started
 2026-06-17 13:20:56,689 [DEBUG] httpcore.connection: close.complete
 2026-06-17 13:20:56,727 [INFO] nodes.weather_node: 기상 리스크 평가 완료: RiskLevel.LOW
+2026-06-17 19:48:20,459 [DEBUG] nodes.material_node: RAG 계약단가 툴 로드 완료
+2026-06-17 19:50:18,193 [DEBUG] nodes.material_node: RAG 계약단가 툴 로드 완료
+2026-06-17 19:51:14,591 [DEBUG] router: classify_question 호출 — query='태풍으로 철골 세우기 공정이 3일 지연될 것 같습니다.'
+2026-06-17 19:51:29,170 [DEBUG] router: classify_question 호출 — query='태풍으로 철골 세우기 공정이 3일 지연될 것 같습니다.'
+2026-06-17 19:57:16,080 [DEBUG] nodes.material_node: RAG 계약단가 툴 로드 완료

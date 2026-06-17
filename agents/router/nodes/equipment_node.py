@@ -21,14 +21,20 @@ _EQUIP_TOOLS_PATH = os.path.abspath(
     os.path.join(_ROUTER_ROOT, '..', 'equipment_cost')
 )
 
-equip_tools = None
-if _EQUIP_TOOLS_PATH not in sys.path:
-    sys.path.insert(0, _EQUIP_TOOLS_PATH)
+import importlib.util
 
+# 주의: 단순히 `import tools`를 쓰면 agents/labor_cost/tools.py 등 동일한 이름의
+# 다른 모듈과 sys.modules['tools']를 공유하게 되어 잘못된 함수가 바인딩될 수 있다.
+# (labor_cost_node와 함께 그래프에 로드될 때 실제로 발생하는 버그였음)
+# 고유한 모듈 이름으로 직접 로드해 충돌을 막는다.
+equip_tools = None
+_EQUIP_TOOLS_FILE = os.path.join(_EQUIP_TOOLS_PATH, 'tools.py')
 try:
-    import tools as equip_tools
-except ImportError:
-    log.warning(f"Failed to import tools from {_EQUIP_TOOLS_PATH} - equipment node will be unavailable")
+    _equip_tools_spec = importlib.util.spec_from_file_location('equipment_cost_tools_module', _EQUIP_TOOLS_FILE)
+    equip_tools = importlib.util.module_from_spec(_equip_tools_spec)
+    _equip_tools_spec.loader.exec_module(equip_tools)
+except Exception:
+    log.warning(f"Failed to import tools from {_EQUIP_TOOLS_FILE} - equipment node will be unavailable")
     equip_tools = None
 
 load_dotenv(dotenv_path=os.path.join(_ROUTER_ROOT, '.env'))

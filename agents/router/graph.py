@@ -1,10 +1,11 @@
 """
 건설 리스크 통합 LangGraph
 START → router (분류 + Command 핸드오프)
-          → A: weather → END
-          → B: equipment ┐
-                material  ├ 병렬 → END
-                labor_cost┘
+          → A: weather → equipment/labor_cost (병렬) ┐
+          → B: equipment/material/labor_cost (병렬)   ├→ synthesize → END
+                                                        ┘
+weather_node도 Command로 직접 라우팅한다 (분석 실패 시 synthesize로 직행,
+성공 시 equipment/labor_cost로 핸드오프) — graph.py에는 weather의 정적 outgoing edge가 없다.
 """
 from langgraph.graph import StateGraph, START, END
 
@@ -14,6 +15,7 @@ from nodes.equipment_node import equipment_node
 from nodes.weather_node import weather_node
 from nodes.material_node import material_node
 from nodes.labor_cost_node import labor_cost_node
+from nodes.synthesize_node import synthesize_node
 
 
 def build_graph():
@@ -24,14 +26,16 @@ def build_graph():
     wf.add_node('material', material_node)
     wf.add_node('labor_cost', labor_cost_node)
     wf.add_node('weather', weather_node)
+    wf.add_node('synthesize', synthesize_node)
 
     wf.add_edge(START, 'router')
     # router_node가 Command로 직접 라우팅 — conditional_edges 불필요
 
-    wf.add_edge('equipment', END)
-    wf.add_edge('material', END)
-    wf.add_edge('labor_cost', END)
-    wf.add_edge('weather', END)
+    wf.add_edge('equipment', 'synthesize')
+    wf.add_edge('material', 'synthesize')
+    wf.add_edge('labor_cost', 'synthesize')
+    # weather_node는 Command(goto=...)로 직접 라우팅하므로 정적 edge 불필요
+    wf.add_edge('synthesize', END)
 
     return wf.compile()
 

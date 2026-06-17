@@ -9,6 +9,10 @@ from logger import get_logger
 
 log = get_logger(__name__)
 
+# 프로젝트 선택 UI가 아직 없어 sample_projects.json의 기본 프로젝트로 고정
+# (test.py와 동일한 기본값)
+DEFAULT_PROJECT_ID = "PJT-001"
+
 _STUB_MARKER = "미구현"  # stub 응답 필터링 키워드
 
 
@@ -17,17 +21,11 @@ def _is_stub(resp: str) -> bool:
     return resp is not None and _STUB_MARKER in resp
 
 
-def print_result(state: dict):
-    qtype = state.get("question_type", "?")
-
-    if qtype == "A":
-        resp = state.get("weather_response")
-        if resp and not _is_stub(resp):
-            print(f"\n[기상 에이전트]\n{resp}")
-        elif _is_stub(resp):
-            print("\n[기상 에이전트] 아직 준비 중입니다.")
-    else:
+def print_result(state: dict, verbose: bool = False):
+    """synthesize 노드가 만든 최종 답변을 출력. verbose=True면 에이전트별 원본 응답도 함께 출력."""
+    if verbose:
         for key, label in [
+            ("weather_response", "기상 에이전트"),
             ("equipment_response", "장비 에이전트"),
             ("labor_cost_response", "인건비 에이전트"),
             ("material_response", "자재 에이전트"),
@@ -35,20 +33,19 @@ def print_result(state: dict):
             resp = state.get(key)
             if resp and not _is_stub(resp):
                 print(f"\n[{label}]\n{resp}")
+        print("\n" + "─" * 60)
+
+    final_response = state.get("final_response")
+    if final_response and not _is_stub(final_response):
+        print(f"\n{final_response}")
+    else:
+        print("\n답변을 생성하지 못했습니다.")
 
 
 def _extract_ai_text(state: dict) -> str:
-    """state에서 실제 AI 응답 텍스트를 추출해 히스토리용 AIMessage 내용으로 반환."""
-    qtype = state.get("question_type", "")
-    if qtype == "A":
-        resp = state.get("weather_response", "")
-        return resp if resp and not _is_stub(resp) else ""
-    parts = [
-        state.get(key, "")
-        for key in ("equipment_response", "labor_cost_response", "material_response")
-        if state.get(key) and not _is_stub(state.get(key))
-    ]
-    return "\n\n".join(parts)
+    """다음 턴 컨텍스트로 쓸 AI 응답 텍스트 — synthesize 노드의 최종 답변을 사용."""
+    resp = state.get("final_response", "")
+    return resp if resp and not _is_stub(resp) else ""
 
 
 def main():
@@ -67,7 +64,10 @@ def main():
 
         print()
         try:
-            result = graph.invoke({"messages": history})
+            result = graph.invoke({
+                "messages": history,
+                "project_id": DEFAULT_PROJECT_ID,
+            })
         except Exception:
             log.exception("graph.invoke 실패")
             print("\n오류가 발생했습니다. 다시 시도해 주세요.")

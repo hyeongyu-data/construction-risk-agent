@@ -8,6 +8,10 @@ MODEL_ID = os.getenv("MODEL_ID", "claude-haiku-4-5-20251001")
 MAX_TOKENS = 100
 TEMPERATURE = 0.1
 
+# 최종 응답 합성(synthesize)용 — 분류보다 긴 출력이 필요
+SYNTHESIS_MAX_TOKENS = 1500
+SYNTHESIS_TEMPERATURE = 0.3
+
 # 질문 타입: A = 기상 악화, B = 현장 변경
 QUESTION_TYPES = {
     "A": {

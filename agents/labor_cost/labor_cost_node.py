@@ -17,7 +17,16 @@ _here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _here)                                    # tools.py (같은 폴더)
 sys.path.append(os.path.join(_here, '..', '..'))             # common 모듈
 from common.security import check_injection, BLOCKED_RESPONSE
-import tools
+
+import importlib.util
+
+# 주의: `import tools`는 agents/equipment_cost/tools.py 등 동일한 이름의 모듈과
+# sys.modules['tools']를 공유해 충돌한다 (router의 equipment_node가 먼저 로드되면
+# 그 tools.py가 캐시되어 get_labor_price 등이 없다는 AttributeError 발생).
+# 고유한 모듈 이름으로 직접 로드해 충돌을 막는다.
+_tools_spec = importlib.util.spec_from_file_location('labor_cost_tools_module', os.path.join(_here, 'tools.py'))
+tools = importlib.util.module_from_spec(_tools_spec)
+_tools_spec.loader.exec_module(tools)
 
 load_dotenv()
 

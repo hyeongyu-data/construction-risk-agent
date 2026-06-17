@@ -1,9 +1,41 @@
-import sqlite3
 import os
+import time
 import logging
+from dotenv import load_dotenv
 from langchain_core.tools import tool
+import psycopg2
 
-DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'db', 'equipment_cost.db'))
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
+
+DB_CONFIG = {
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     os.getenv("DB_PORT", "5432"),
+    "dbname":   os.getenv("DB_NAME", "construction_risk_agent"),
+    "user":     os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "connect_timeout": 10,  # 기본값(OS 타임아웃, 수십~수백초)이 아닌 10초로 빠르게 실패
+}
+
+_MAX_RETRIES = 3
+_RETRY_DELAY_SEC = 2
+
+
+def _get_pg_connection():
+    """
+    여러 에이전트가 동시에 같은 RDS 호스트로 접속을 시도할 때 간헐적으로 발생하는
+    연결 타임아웃(psycopg2.OperationalError: Operation timed out)에 대응하기 위해
+    짧은 connect_timeout과 재시도를 적용한다.
+    """
+    last_err = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return psycopg2.connect(**DB_CONFIG)
+        except psycopg2.OperationalError as e:
+            last_err = e
+            logging.warning(f'DB 연결 시도 {attempt}/{_MAX_RETRIES} 실패: {e}')
+            if attempt < _MAX_RETRIES:
+                time.sleep(_RETRY_DELAY_SEC)
+    raise last_err
 
 
 @tool
@@ -17,14 +49,14 @@ def get_equipment_by_work_type(work_type: str) -> str:
     - 필요구분: 주요(필수 투입) / 조건부(상황에 따라) / 보조(보조 역할)
     - is_standard=1 인 항목이 해당 장비의 표준 규격이다.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_pg_connection()
     try:
         cur = conn.cursor()
         cur.execute(
             '''
             SELECT priority, equipment_type, spec, daily_rental_rate, standby_rate, is_standard, year
-            FROM equipment_rental
-            WHERE work_type LIKE ? OR work_type LIKE '%공통%'
+            FROM equipment_cost.equipment_rental
+            WHERE work_type LIKE %s OR work_type LIKE '%%공통%%'
             ORDER BY
                 CASE priority WHEN '주요' THEN 1 WHEN '조건부' THEN 2 ELSE 3 END,
                 equipment_type,
@@ -69,14 +101,14 @@ def get_equipment_rental_rate(equipment_type: str) -> str:
     - 부분 일치 검색 가능.
     - ★표준 표시 항목이 규격 미명시 시 기본 선택값이다.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_pg_connection()
     try:
         cur = conn.cursor()
         cur.execute(
             '''
             SELECT equipment_type, spec, daily_rental_rate, standby_rate, is_standard, year
-            FROM equipment_rental
-            WHERE equipment_type LIKE ?
+            FROM equipment_cost.equipment_rental
+            WHERE equipment_type LIKE %s
             ORDER BY is_standard DESC, daily_rental_rate
             ''',
             (f'%{equipment_type}%',),
@@ -111,14 +143,14 @@ def get_equipment_cost_range(equipment_type: str, delay_days: float) -> str:
     - 표준 규격이 없으면 중간값을 표준으로 사용한다.
     - 계산 결과에서 표준 규격 비용을 대표값으로 사용하고, 범위를 참고값으로 제시한다.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_pg_connection()
     try:
         cur = conn.cursor()
         cur.execute(
             '''
             SELECT equipment_type, spec, daily_rental_rate, standby_rate, is_standard
-            FROM equipment_rental
-            WHERE equipment_type LIKE ?
+            FROM equipment_cost.equipment_rental
+            WHERE equipment_type LIKE %s
             ORDER BY daily_rental_rate
             ''',
             (f'%{equipment_type}%',),
