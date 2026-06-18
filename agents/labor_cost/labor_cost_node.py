@@ -18,7 +18,7 @@ _here = os.path.dirname(os.path.abspath(__file__))
 _project_root = os.path.abspath(os.path.join(_here, '..', '..'))
 sys.path.insert(0, _here)
 sys.path.append(_project_root)
-from common.security import check_injection, BLOCKED_RESPONSE
+from common.security import check_injection, BLOCKED_RESPONSE, block_reason_ko
 
 import importlib.util
 
@@ -143,7 +143,7 @@ def _blocked_labor_cost_response(reason: str) -> str:
         "missing_fields": [],
         "assumptions": [],
         "excluded_items": ["장비비", "자재비", "이윤", "부가세", "도심지 할증"],
-        "warnings": [f"프롬프트 인젝션 차단: {reason}"],
+        "warnings": [block_reason_ko(reason)],
         "evidence": [],
     }, ensure_ascii=False)
 
