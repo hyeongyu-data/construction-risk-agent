@@ -9,7 +9,7 @@ import sys
 import json
 import re
 import importlib.util
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -190,24 +190,93 @@ def _parse_json_response(text: str) -> dict:
                                raw_response=text)
 
 
+# ── Phase 1: 리뷰어(결정론적 검증 게이트) ───────────────────
+# 외부 의존성 없이 구조화 결과만 검사한다. 통과면 [], 실패면 문제 메시지 리스트.
+# MISSING_INFO / IRRELEVANT는 정상적인 종료 상태이므로 재시도 대상이 아니다.
+_MAX_REVIEW_RETRIES = 1  # 검증 실패 시 추가 재시도 횟수 (총 시도 = 1 + N)
+
+
+def _review_material(structured: dict) -> list:
+    problems = []
+    status = structured.get('status')
+
+    # 1) JSON 미준수 / 파싱 실패 → 스키마 재요청
+    if status == 'ERROR':
+        problems.append(
+            'JSON 형식으로 응답하지 않았거나 파싱에 실패했습니다. '
+            '설명 문장·마크다운 없이 지정된 JSON 스키마만 출력하세요.'
+        )
+        return problems  # 파싱 자체가 안 됐으면 추가 검사 의미 없음
+
+    # 2) 계산 결과라는데 항목/합계가 비거나 어긋남
+    if status in ('CALCULATED', 'PARTIAL'):
+        items = structured.get('cost_items') or []
+        if not items:
+            problems.append('status가 CALCULATED/PARTIAL인데 cost_items가 비어 있습니다. 비용 항목을 채우세요.')
+
+        total = structured.get('total_cost')
+        item_sum = sum(
+            it.get('amount') for it in items
+            if isinstance(it.get('amount'), (int, float))
+        )
+        if items and isinstance(total, (int, float)) and int(total) != int(item_sum):
+            problems.append(
+                f'total_cost({int(total):,})가 cost_items 금액 합계({int(item_sum):,})와 일치하지 않습니다. '
+                f'툴이 반환한 금액을 그대로 사용해 합계를 다시 맞추세요.'
+            )
+
+        for it in items:
+            for k in ('quantity', 'unit_price', 'amount'):
+                v = it.get(k)
+                if isinstance(v, (int, float)) and v < 0:
+                    problems.append(f'{k} 값이 음수입니다({v}). 양수로 정정하세요.')
+
+    return problems
+
+
+def _run_material_once(messages: list) -> tuple:
+    """자재 에이전트 1회 실행 → (response_text, structured_dict)."""
+    result = _material_cost_node({'messages': messages})
+    msgs = result.get('messages', [])
+    last_ai = next(
+        (m for m in reversed(msgs)
+         if isinstance(m, AIMessage) and not getattr(m, 'tool_calls', None)),
+        None,
+    )
+    raw_content = last_ai.content if last_ai else '[자재 에이전트 응답 없음]'
+    response = _message_content_to_text(raw_content)
+    return response, _parse_json_response(response)
+
+
 # ── 노드 함수 ────────────────────────────────────────────────
 def material_node(state: dict) -> dict:
     log.debug('material_node 진입')
     print('\n[자재 에이전트] 처리 시작')
 
     try:
-        result   = _material_cost_node(state)
-        messages = result.get('messages', [])
+        messages = list(state['messages'])
+        response, structured = _run_material_once(messages)
 
-        last_ai = next(
-            (m for m in reversed(messages)
-             if isinstance(m, AIMessage) and not getattr(m, 'tool_calls', None)),
-            None,
-        )
-
-        raw_content = last_ai.content if last_ai else '[자재 에이전트 응답 없음]'
-        response    = _message_content_to_text(raw_content)
-        structured  = _parse_json_response(response)
+        # 검증 → 실패 시 피드백을 붙여 재시도 (최대 _MAX_REVIEW_RETRIES회)
+        for attempt in range(1, _MAX_REVIEW_RETRIES + 1):
+            problems = _review_material(structured)
+            if not problems:
+                break
+            log.warning(f'[리뷰어] 자재 검증 실패(시도 {attempt}): {problems}')
+            print(f'[자재 에이전트] 검증 실패 → 재시도 {attempt}/{_MAX_REVIEW_RETRIES}')
+            feedback = HumanMessage(content=(
+                '[검토 피드백] 직전 응답에 다음 문제가 있습니다. 반드시 고쳐서 '
+                '지정된 JSON 스키마로만 다시 답하세요:\n- ' + '\n- '.join(problems)
+            ))
+            messages = messages + [feedback]
+            response, structured = _run_material_once(messages)
+        else:
+            # 재시도까지 했는데 여전히 문제가 남은 경우 경고만 남기고 진행
+            remaining = _review_material(structured)
+            if remaining:
+                structured.setdefault('warnings', []).append(
+                    '자동 검토 재시도 후에도 일부 문제가 남아 있습니다: ' + '; '.join(remaining)
+                )
 
         log.debug('material_node 종료')
         print('[자재 에이전트] 완료')
