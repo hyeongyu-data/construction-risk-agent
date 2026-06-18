@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Message } from '../types';
+import { Message, AgentType } from '../types';
 import { sendConvMessage, renameConversation } from '../api';
 import './ChatArea.css';
 
@@ -7,10 +7,19 @@ interface Props {
   convId: string | null;
   messages: Message[];
   onMessagesUpdate: (messages: Message[]) => void;
-  onNeedConv: () => Promise<string>;   // 대화 없을 때 자동 생성
-  onConvCreated: (id: string) => void; // 생성된 convId 부모에 알림
+  onNeedConv: () => Promise<string>;
+  onConvCreated: (id: string) => void;
 }
 
+// ── 에이전트 메타 ──────────────────────────────
+const AGENT_META: Record<AgentType, { label: string; color: string }> = {
+  weather:   { label: '날씨 에이전트',  color: '#2563eb' },
+  labor:     { label: '인건비 에이전트', color: '#16a34a' },
+  equipment: { label: '장비 에이전트',  color: '#d97706' },
+  material:  { label: '자재 에이전트',  color: '#7c3aed' },
+};
+
+// ── Markdown 렌더러 ────────────────────────────
 function parseInline(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
@@ -53,6 +62,8 @@ function renderMarkdown(text: string): React.ReactNode[] {
     }
     const li = line.match(/^[-*]\s+(.*)/);
     if (li) { result.push(<li key={i} className="md-li">{parseInline(li[1])}</li>); i++; continue; }
+    const bq = line.match(/^>\s+(.*)/);
+    if (bq) { result.push(<blockquote key={i} className="md-bq">{parseInline(bq[1])}</blockquote>); i++; continue; }
     if (line.trim() === '') { result.push(<div key={i} className="md-gap"/>); i++; continue; }
     result.push(<p key={i} className="md-p">{parseInline(line)}</p>);
     i++;
@@ -63,7 +74,11 @@ function renderMarkdown(text: string): React.ReactNode[] {
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button className="action-btn" onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }} title="복사">
+    <button
+      className="action-btn"
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      title="복사"
+    >
       {copied
         ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
         : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -72,10 +87,85 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ── 에이전트 카드 아이콘 ───────────────────────
+function WeatherIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+    </svg>
+  );
+}
+function LaborIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  );
+}
+function EquipmentIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+    </svg>
+  );
+}
+function MaterialIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+      <line x1="12" y1="22.08" x2="12" y2="12"/>
+    </svg>
+  );
+}
+
+const AGENT_CARDS = [
+  {
+    type: 'weather' as AgentType,
+    title: '날씨 리스크',
+    desc: '기상 조건이 공사에 미치는 영향 분석',
+    prompt: '이번 주 현장 기상 리스크 분석해줘',
+    Icon: WeatherIcon,
+    accent: '#dbeafe',
+    iconColor: '#2563eb',
+  },
+  {
+    type: 'labor' as AgentType,
+    title: '인건비 산출',
+    desc: '표준품셈 기반 직접노무비 산출',
+    prompt: '철골 세우기 인건비 산출해줘',
+    Icon: LaborIcon,
+    accent: '#dcfce7',
+    iconColor: '#16a34a',
+  },
+  {
+    type: 'equipment' as AgentType,
+    title: '장비 현황',
+    desc: '장비 가용성 및 비용 리스크 분석',
+    prompt: '타워크레인 점검 현황과 비용 알려줘',
+    Icon: EquipmentIcon,
+    accent: '#fef3c7',
+    iconColor: '#d97706',
+  },
+  {
+    type: 'material' as AgentType,
+    title: '자재 가격',
+    desc: '건설 자재 시세 및 조달 리스크',
+    prompt: '철근 현재 시세와 조달 리스크 알려줘',
+    Icon: MaterialIcon,
+    accent: '#ede9fe',
+    iconColor: '#7c3aed',
+  },
+];
+
+// ── 메인 컴포넌트 ──────────────────────────────
 export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedConv, onConvCreated }: Props) {
-  const [input, setInput]               = useState('');
-  const [loading, setLoading]           = useState(false);
-  const [thinkSecs, setThinkSecs]       = useState(0);
+  const [input, setInput]                 = useState('');
+  const [loading, setLoading]             = useState(false);
+  const [thinkSecs, setThinkSecs]         = useState(0);
   const [lastThinkSecs, setLastThinkSecs] = useState<number | null>(null);
   const bottomRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -105,7 +195,7 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
     setLoading(true);
     try {
       const reply = await sendConvMessage(targetConvId, userContent);
-      const next = [...optimisticMessages, { role: 'assistant' as const, content: reply }];
+      const next = [...optimisticMessages, reply];
       onMessagesUpdate(next);
       if (optimisticMessages.length === 1) {
         const title = userContent.slice(0, 30) + (userContent.length > 30 ? '...' : '');
@@ -124,7 +214,6 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    // 대화 없으면 자동 생성
     let targetId = convId;
     if (!targetId) {
       targetId = await onNeedConv();
@@ -179,17 +268,38 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
     </div>
   );
 
-  // 웰컴 화면 (convId 없거나 메시지 없을 때)
+  // ── 웰컴 화면 ────────────────────────────────
   if (isEmpty) {
     return (
       <main className="chat-area">
         <div className="centered-welcome">
-          <h2>무엇을 도와드릴까요?</h2>
-          <div className="example-prompts">
-            <button onClick={() => handleExampleClick('철골 세우기 인건비 산출해줘')}>철골 세우기 인건비 산출</button>
-            <button onClick={() => handleExampleClick('콘크리트 타설 인건비 얼마야?')}>콘크리트 타설 인건비</button>
-            <button onClick={() => handleExampleClick('거푸집 설치 인건비 산출해줘')}>거푸집 설치 인건비</button>
+          <div className="welcome-header">
+            <div className="welcome-logo">
+              Civil<span>.AI</span>
+            </div>
+            <h2>무엇을 도와드릴까요?</h2>
+            <p className="welcome-subtitle">건설 현장 리스크를 AI로 분석합니다</p>
           </div>
+
+          <div className="agent-cards">
+            {AGENT_CARDS.map(({ type, title, desc, prompt, Icon, accent, iconColor }) => (
+              <button
+                key={type}
+                className="agent-card"
+                onClick={() => handleExampleClick(prompt)}
+                style={{ '--card-accent': accent, '--card-icon-color': iconColor } as React.CSSProperties}
+              >
+                <div className="agent-card-icon">
+                  <Icon />
+                </div>
+                <div className="agent-card-content">
+                  <span className="agent-card-title">{title}</span>
+                  <span className="agent-card-desc">{desc}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+
           <div className="centered-input-area">{inputBox}</div>
         </div>
       </main>
@@ -207,6 +317,18 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
               <div className="user-bubble">{msg.content}</div>
             ) : (
               <div className="assistant-body">
+                {msg.agent && (
+                  <div
+                    className="agent-badge"
+                    style={{ color: AGENT_META[msg.agent].color }}
+                  >
+                    <span
+                      className="agent-badge-dot"
+                      style={{ background: AGENT_META[msg.agent].color }}
+                    />
+                    {AGENT_META[msg.agent].label}
+                  </div>
+                )}
                 {i === lastAssistantIdx && lastThinkSecs !== null && (
                   <div className="think-label">{lastThinkSecs}초 동안 생각함</div>
                 )}

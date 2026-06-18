@@ -15,8 +15,12 @@ INJECTION_PATTERNS = [
     r'시스템\s*프롬프트',
     r'system\s*prompt',
     r'developer\s*message',
-    r'api\s*key',
+    r'api\s*(key|키)',
+    r'(access|secret|액세스|시크릿)\s*(key|키)',
+    r'(db|디비|데이터베이스)\s*(password|비밀번호|패스워드)',
     r'db\s*password',
+    # 키/비밀번호/토큰 등 민감정보를 "알려/보여/공개/출력/내놔" 요구하는 경우
+    r'(api\s*키|api\s*key|키값|비밀번호|패스워드|토큰|token|secret\s*key)\s*(값|정보)?\s*(전부|다|모두|좀)?\s*(을|를)?\s*(알려|보여|출력|공개|내놔|내놓)',
     r'규칙\s*(을|를)?\s*무시',
     r'계산\s*결과\s*(를|을)?\s*(바꿔|조작|변경)',
     r'단가\s*(를|을)?\s*조작',

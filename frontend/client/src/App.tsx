@@ -8,6 +8,11 @@ import {
   fetchConversations, createConversation, deleteConversation,
   fetchMessages,
 } from './api';
+import {
+  MOCK_MODE,
+  MOCK_PROJECTS, MOCK_QUICK_CONVS, MOCK_PROJECT_CONVS, MOCK_MESSAGES,
+  createMockConversation,
+} from './mockData';
 import './App.css';
 
 export default function App() {
@@ -20,35 +25,61 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen]         = useState(true);
   const [showOpenBtn, setShowOpenBtn]         = useState(false);
 
-  // ref: handleMessagesUpdate 클로저에서 항상 최신 activeConvId를 읽기 위해
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
 
   useEffect(() => {
+    if (MOCK_MODE) {
+      setQuickConvs(MOCK_QUICK_CONVS);
+      setProjects(MOCK_PROJECTS);
+      return;
+    }
     fetchQuickConversations().then(setQuickConvs).catch(console.error);
     fetchProjects().then(setProjects).catch(console.error);
   }, []);
 
   useEffect(() => {
     if (!activeProjectId) { setProjectConvs([]); return; }
+    if (MOCK_MODE) {
+      setProjectConvs(MOCK_PROJECT_CONVS[activeProjectId] ?? []);
+      return;
+    }
     fetchConversations(activeProjectId).then(setProjectConvs).catch(console.error);
   }, [activeProjectId]);
 
   useEffect(() => {
     if (!activeConvId) { setMessages([]); return; }
+    if (MOCK_MODE) {
+      setMessages(MOCK_MESSAGES[activeConvId] ?? []);
+      return;
+    }
     fetchMessages(activeConvId).then(setMessages).catch(console.error);
   }, [activeConvId]);
 
-  // 웰컴 화면에서 첫 메시지 전송 시 quick conversation 자동 생성 후 ID 반환
   const handleNeedConv = useCallback(async (): Promise<string> => {
+    if (MOCK_MODE) {
+      const conv = createMockConversation();
+      setQuickConvs(prev => [conv, ...prev]);
+      setActiveConvId(conv.id);
+      activeConvIdRef.current = conv.id;
+      return conv.id;
+    }
     const conv = await createQuickConversation();
     setQuickConvs(prev => [conv, ...prev]);
     setActiveConvId(conv.id);
-    activeConvIdRef.current = conv.id;  // ref 즉시 동기 업데이트
+    activeConvIdRef.current = conv.id;
     return conv.id;
   }, []);
 
   const handleQuickNew = useCallback(async () => {
+    if (MOCK_MODE) {
+      const conv = createMockConversation();
+      setQuickConvs(prev => [conv, ...prev]);
+      setActiveProjectId(null);
+      setActiveConvId(conv.id);
+      setMessages([]);
+      return;
+    }
     const conv = await createQuickConversation();
     setQuickConvs(prev => [conv, ...prev]);
     setActiveProjectId(null);
@@ -63,6 +94,17 @@ export default function App() {
   }, []);
 
   const handleCreateProject = useCallback(async (name: string, description = '') => {
+    if (MOCK_MODE) {
+      const proj: Project = {
+        id: `p-${Date.now()}`,
+        name,
+        description,
+        created_at: new Date().toISOString(),
+      };
+      setProjects(prev => [proj, ...prev]);
+      setActiveProjectId(proj.id);
+      return;
+    }
     const proj = await createProject(name, description);
     setProjects(prev => [proj, ...prev]);
     setActiveProjectId(proj.id);
@@ -80,6 +122,13 @@ export default function App() {
 
   const handleCreateProjectConv = useCallback(async () => {
     if (!activeProjectId) return;
+    if (MOCK_MODE) {
+      const conv = createMockConversation(activeProjectId);
+      setProjectConvs(prev => [conv, ...prev]);
+      setActiveConvId(conv.id);
+      setMessages([]);
+      return;
+    }
     const conv = await createConversation(activeProjectId);
     setProjectConvs(prev => [conv, ...prev]);
     setActiveConvId(conv.id);
@@ -92,7 +141,6 @@ export default function App() {
     if (activeConvIdRef.current === convId) { setActiveConvId(null); setMessages([]); }
   }, []);
 
-  // ref를 통해 항상 최신 convId를 읽으므로 의존성 배열에 activeConvId 불필요
   const handleMessagesUpdate = useCallback((newMessages: Message[]) => {
     setMessages(newMessages);
     const cid = activeConvIdRef.current;

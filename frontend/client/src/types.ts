@@ -1,6 +1,9 @@
+export type AgentType = 'weather' | 'labor' | 'equipment' | 'material';
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
+  agent?: AgentType;
 }
 
 export interface Project {
