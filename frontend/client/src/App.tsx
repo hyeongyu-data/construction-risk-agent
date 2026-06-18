@@ -34,6 +34,7 @@ export default function App() {
 
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
+  const initialLoadDoneRef = useRef(false);
 
   const selectProject = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -76,6 +77,7 @@ export default function App() {
     setProjectConvs([]);
     setActiveConvId(null);
     setMessages([]);
+    initialLoadDoneRef.current = false;
   }, []);
 
   // 401 발생 시 자동 로그아웃
@@ -89,6 +91,9 @@ export default function App() {
   // ── 데이터 로드 ─────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
+    initialLoadDoneRef.current = false;
+
     if (MOCK_MODE) {
       setQuickConvs(
         MOCK_QUICK_CONVS.map(c => ({ ...c, can_write: c.owner_id === user.user_id }))
@@ -99,26 +104,46 @@ export default function App() {
           my_project_role: (p.created_by === user.user_id ? 'owner' : 'member') as ProjectRole,
         }))
       );
+      initialLoadDoneRef.current = true;
       return;
     }
     // 로그인/새로고침 시 모든 초기 데이터를 병렬로 한 번에 로드
     const initProjectId = activeProjectId;
     const initConvId    = activeConvId;
-    Promise.all([
-      fetchQuickConversations().then(setQuickConvs).catch(console.error),
-      fetchProjects().then(setProjects).catch(console.error),
-      initProjectId
-        ? fetchConversations(initProjectId).then(setProjectConvs).catch(console.error)
-        : Promise.resolve(),
-      initConvId
-        ? fetchMessages(initConvId).then(setMessages).catch(console.error)
-        : Promise.resolve(),
-    ]);
+
+    async function loadInitialData() {
+      const [quickResult, projectsResult, projectConvsResult, messagesResult] = await Promise.allSettled([
+        fetchQuickConversations(),
+        fetchProjects(),
+        initProjectId ? fetchConversations(initProjectId) : Promise.resolve([] as Conversation[]),
+        initConvId ? fetchMessages(initConvId) : Promise.resolve([] as Message[]),
+      ]);
+
+      if (cancelled) return;
+
+      if (quickResult.status === 'fulfilled') setQuickConvs(quickResult.value);
+      else console.error(quickResult.reason);
+
+      if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value);
+      else console.error(projectsResult.reason);
+
+      if (projectConvsResult.status === 'fulfilled') setProjectConvs(projectConvsResult.value);
+      else console.error(projectConvsResult.reason);
+
+      if (messagesResult.status === 'fulfilled') setMessages(messagesResult.value);
+      else console.error(messagesResult.reason);
+
+      initialLoadDoneRef.current = true;
+    }
+
+    loadInitialData();
+    return () => { cancelled = true; };
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 프로젝트 전환 시 대화 목록 갱신 (초기 로드 제외)
   useEffect(() => {
     if (!activeProjectId || !user) { setProjectConvs([]); return; }
+    if (!initialLoadDoneRef.current) return;
     if (MOCK_MODE) {
       const uid = user?.user_id ?? '';
       setProjectConvs(
@@ -132,6 +157,7 @@ export default function App() {
   // 대화 전환 시 메시지 갱신 (초기 로드 제외)
   useEffect(() => {
     if (!activeConvId || !user) { setMessages([]); return; }
+    if (!initialLoadDoneRef.current) return;
     if (MOCK_MODE) {
       setMessages(MOCK_MESSAGES[activeConvId] ?? []);
       return;

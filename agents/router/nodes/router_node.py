@@ -19,6 +19,62 @@ from logger import get_logger
 log = get_logger(__name__)
 
 
+def _build_rag_query(query: str) -> str:
+    if "철골세우기" in query.replace(" ", "") or "철골" in query:
+        return "철골 세우기"
+    return query
+
+
+def _extract_rag_item_name(content: str) -> str | None:
+    for line in content.splitlines():
+        clean = line.strip()
+        if not clean or clean.startswith("[주의"):
+            continue
+        return clean
+    return None
+
+
+def _search_standard_spec_for_rag(query: str) -> dict:
+    rag_query = _build_rag_query(query)
+    log.info(f"RAG_QA 표준품셈 검색 실행: query={rag_query!r}")
+    print(f"[RAG_QA] 표준품셈 검색 실행: {rag_query}")
+
+    try:
+        from agents.labor_cost.tools import search_standard_spec
+
+        content = search_standard_spec.invoke({"query": rag_query})
+        if not isinstance(content, str):
+            content = str(content)
+
+        not_found = "찾지 못했습니다" in content or not content.strip()
+        evidence = [] if not_found else [{
+            "source": "rag.standard_spec",
+            "document": "2026 건설공사 표준품셈",
+            "item_name": _extract_rag_item_name(content),
+            "query": rag_query,
+            "chunk_id": "top_match",
+            "page": None,
+            "content": content[:1200],
+            "type": "standard_spec",
+        }]
+
+        return {
+            "status": "not_found" if not_found else "success",
+            "query": rag_query,
+            "content": content,
+            "evidence": evidence,
+        }
+    except Exception as e:
+        log.exception(f"RAG_QA 표준품셈 검색 실패: {e}")
+        return {
+            "status": "error",
+            "query": rag_query,
+            "content": "",
+            "evidence": [],
+            "warnings": [f"표준품셈 RAG 검색 실패: {e}"],
+        }
+
+
 def _build_classify_input(messages: list) -> tuple[str, str]:
     """분류용 입력 구성.
 
@@ -74,6 +130,7 @@ def router_node(state: dict) -> Command:
     result = classify_question(classify_input)
     needs_weather = result["needs_weather"]
     agents = result.get("agents", [])
+    answer_type = result.get("answer_type", "RISK_REPORT" if needs_weather else "COST_REPORT")
     reason = result.get("reason", "")
 
     question_type = 'A' if needs_weather else 'B'
@@ -81,6 +138,21 @@ def router_node(state: dict) -> Command:
     print(f'[라우터] 실행 에이전트: {agents}')
 
     # 건설 무관 질문 — 에이전트 호출 없이 바로 종료
+    if not needs_weather and not agents and answer_type in {"CHAT", "RAG_QA"}:
+        log.info(f"router_node: {answer_type} -> synthesize")
+        rag_result = _search_standard_spec_for_rag(latest_query) if answer_type == "RAG_QA" else None
+        return Command(
+            update={
+                'question_type': question_type,
+                'answer_type': answer_type,
+                'needs_weather': False,
+                'target_agents': [],
+                'rag_response': rag_result.get("content") if rag_result else None,
+                'rag_result': rag_result,
+            },
+            goto='synthesize',
+        )
+
     if not needs_weather and not agents:
         off_topic = (
             "안녕하세요! 저는 건설 현장 리스크 분석 AI입니다.\n\n"
@@ -95,6 +167,7 @@ def router_node(state: dict) -> Command:
         return Command(
             update={
                 'question_type': question_type,
+                'answer_type': 'CHAT',
                 'needs_weather': False,
                 'target_agents': [],
                 'final_response': off_topic,
@@ -116,6 +189,11 @@ def router_node(state: dict) -> Command:
 
     log.info(f"router_node 분기: {question_type} -> {goto_names}")
     return Command(
-        update={'question_type': question_type, 'needs_weather': needs_weather, 'target_agents': agents},
+        update={
+            'question_type': question_type,
+            'answer_type': answer_type,
+            'needs_weather': needs_weather,
+            'target_agents': agents,
+        },
         goto=goto,
     )

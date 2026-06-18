@@ -21,10 +21,35 @@ _bedrock = boto3.client(
 _COST_AGENTS = ("equipment", "material", "labor_cost")
 _DEFAULT_AGENTS = ["equipment", "material", "labor_cost"]   # 무관/파싱실패 시 폴백(전부)
 _WEATHER_DEFAULT_AGENTS = ["equipment", "labor_cost"]       # 기상 지연 → 장비·인력 대기
+_ANSWER_TYPES = {"CHAT", "RAG_QA", "COST_REPORT", "RISK_REPORT", "MISSING_INFO"}
 
 _MATERIAL_LOOKUP_TERMS = (
     "조달청", "가격정보", "단가", "가격", "자재", "시세", "공시",
     "콘크리트", "레미콘", "시멘트", "철근", "파일", "블록",
+)
+_CONCEPT_TERMS = (
+    "표준품셈", "노임단가", "일위대가", "품셈",
+)
+_CONCEPT_QUESTION_TERMS = (
+    "뭐야", "뭐예요", "뭐에요", "무엇", "뜻", "개념", "설명",
+)
+_RAG_QA_TERMS = (
+    "기준 알려", "기준을 알려", "기준 조회", "품셈 기준", "품셈 항목", "항목 찾아", "찾아줘",
+    "근거 알려", "근거를 알려", "근거 찾아", "표준품셈에서",
+    "시방서에 따르면", "시방서 기준", "계약 기준", "계약서 기준", "계약조건에 따르면",
+    "규정상", "조항", "출처",
+)
+_COST_INTENTS = (
+    "산정", "계산", "비용", "얼마", "금액", "추가비", "대기비", "인건비",
+    "장비비", "자재비", "노무비",
+)
+_WEATHER_TERMS = (
+    "비 오", "비가", "비는", "비온", "비 올", "폭우", "눈", "강설",
+    "바람", "강풍", "태풍", "한파", "폭염", "기상", "날씨", "우천",
+)
+_CONSTRUCTION_CHAT_TERMS = (
+    "건설", "공사", "현장", "콘크리트", "타설", "철골", "철근", "장비",
+    "자재", "노무", "품셈", "시방서",
 )
 _MATERIAL_LOOKUP_INTENTS = (
     "조회", "검색", "찾", "알려", "볼 수", "볼수", "가능", "할 수", "할수",
@@ -39,6 +64,82 @@ def _looks_like_material_lookup(query: str) -> bool:
     return has_material_term and has_lookup_intent
 
 
+def _has_any(query: str, terms: tuple[str, ...]) -> bool:
+    q = query.lower()
+    return any(term.lower() in q for term in terms)
+
+
+def _looks_like_concept_chat(query: str) -> bool:
+    return _has_any(query, _CONCEPT_TERMS) and _has_any(query, _CONCEPT_QUESTION_TERMS)
+
+
+def _looks_like_rag_qa(query: str) -> bool:
+    return _has_any(query, _RAG_QA_TERMS)
+
+
+def _infer_answer_type(query: str, *, needs_weather: bool, agents: list[str]) -> str:
+    if needs_weather:
+        return "RISK_REPORT"
+    if _has_any(query, _COST_INTENTS) and agents:
+        return "COST_REPORT"
+    if _looks_like_rag_qa(query):
+        return "RAG_QA"
+    if agents:
+        return "COST_REPORT"
+    return "CHAT" if _has_any(query, _CONSTRUCTION_CHAT_TERMS) else "CHAT"
+
+
+def _classify_by_rule(query: str) -> dict | None:
+    if _looks_like_concept_chat(query):
+        return {
+            "needs_weather": False,
+            "agents": [],
+            "answer_type": "CHAT",
+            "reason": "건설 용어 개념 설명 질의",
+        }
+
+    if _looks_like_rag_qa(query) and not _has_any(query, _COST_INTENTS):
+        return {
+            "needs_weather": False,
+            "agents": [],
+            "answer_type": "RAG_QA",
+            "reason": "기준/품셈/문서 근거 질의",
+        }
+
+    if _has_any(query, _WEATHER_TERMS):
+        return {
+            "needs_weather": True,
+            "agents": list(_WEATHER_DEFAULT_AGENTS),
+            "answer_type": "RISK_REPORT",
+            "reason": "기상 조건에 따른 공정 리스크 분석 의도",
+        }
+
+    if _looks_like_material_lookup(query):
+        return {
+            "needs_weather": False,
+            "agents": ["material"],
+            "answer_type": "MISSING_INFO" if "가능" in query or "할 수" in query or "할수" in query else "COST_REPORT",
+            "reason": "자재 가격 또는 조달청 단가 조회 의도",
+        }
+
+    if _has_any(query, _COST_INTENTS):
+        agents = []
+        if any(term in query for term in ("장비", "대기비", "크레인", "굴착기", "펌프카", "펌프차")):
+            agents.append("equipment")
+        if any(term in query for term in ("인건비", "노무", "인력", "품셈", "철골")):
+            agents.append("labor_cost")
+        if any(term in query for term in ("자재", "레미콘", "콘크리트", "철근", "시멘트")):
+            agents.append("material")
+        return {
+            "needs_weather": False,
+            "agents": agents or list(_DEFAULT_AGENTS),
+            "answer_type": "COST_REPORT",
+            "reason": "비용 산정 의도",
+        }
+
+    return None
+
+
 def classify_question(query: str) -> dict:
     """질문을 분석해 실행 계획을 반환한다.
 
@@ -50,12 +151,9 @@ def classify_question(query: str) -> dict:
         }
     """
     log.debug(f"classify_question 호출 — query={query!r}")
-    if _looks_like_material_lookup(query):
-        return {
-            "needs_weather": False,
-            "agents": ["material"],
-            "reason": "자재 가격 또는 조달청 단가 조회 의도",
-        }
+    rule_result = _classify_by_rule(query)
+    if rule_result:
+        return rule_result
 
     prompt = f"""다음 건설 현장 질문을 분석해 실행 계획을 JSON으로 반환하세요.
 
@@ -78,7 +176,7 @@ def classify_question(query: str) -> dict:
 질문: {query}
 
 JSON으로만 응답하세요:
-{{"needs_weather": true 또는 false, "agents": ["equipment"|"material"|"labor_cost", ...], "reason": "한 줄 이유"}}"""
+{{"needs_weather": true 또는 false, "agents": ["equipment"|"material"|"labor_cost", ...], "answer_type": "CHAT"|"RAG_QA"|"COST_REPORT"|"RISK_REPORT"|"MISSING_INFO", "reason": "한 줄 이유"}}"""
 
     response = _bedrock.invoke_model(
         modelId=MODEL_ID,
@@ -107,12 +205,16 @@ JSON으로만 응답하세요:
         raw_agents = parsed.get("agents", []) or []
         # 허용된 비용 도메인만, 순서·중복 정리
         agents = [a for a in _COST_AGENTS if a in raw_agents]
+        answer_type = parsed.get("answer_type")
+        if answer_type not in _ANSWER_TYPES:
+            answer_type = _infer_answer_type(query, needs_weather=needs_weather, agents=agents)
         reason = parsed.get("reason", "")
     except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
         log.warning(f"분류 파싱 실패 ({e}), 전체 에이전트로 기본 처리. 원본: {text!r}")
         return {
             "needs_weather": False,
             "agents": list(_DEFAULT_AGENTS),
+            "answer_type": "COST_REPORT",
             "reason": "파싱 실패, 전체 비용 에이전트로 기본 처리",
         }
 
@@ -121,7 +223,10 @@ JSON으로만 응답하세요:
         agents = list(_WEATHER_DEFAULT_AGENTS)
 
     log.info(f"분류 결과: needs_weather={needs_weather}, agents={agents} — 근거: {reason}")
-    return {"needs_weather": needs_weather, "agents": agents, "reason": reason}
+    if "answer_type" not in locals():
+        answer_type = _infer_answer_type(query, needs_weather=needs_weather, agents=agents)
+
+    return {"needs_weather": needs_weather, "agents": agents, "answer_type": answer_type, "reason": reason}
 
 
 if __name__ == "__main__":
