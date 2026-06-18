@@ -5,7 +5,9 @@ load_dotenv()
 
 # 라우터 분류용 모델 (단순 A/B 분류 — Haiku로 충분, MODEL_ID env var로 오버라이드 가능)
 MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
-MAX_TOKENS = 100
+# 분류 응답은 {"type","reason"} JSON. reason이 한글로 길어지면 100토큰에서 잘려
+# JSON이 깨지고 B로 폴백되는 문제가 있어 넉넉히 256으로 둔다.
+MAX_TOKENS = 256
 TEMPERATURE = 0.1
 
 # 최종 응답 합성(synthesize)용 — 분류보다 긴 출력이 필요

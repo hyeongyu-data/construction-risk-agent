@@ -19,18 +19,47 @@ from logger import get_logger
 log = get_logger(__name__)
 
 
-def router_node(state: dict) -> Command:
-    log.debug('router_node 진입')
-    query = next(
-        (m.content for m in reversed(state['messages']) if isinstance(m, HumanMessage)),
+def _build_classify_input(messages: list) -> tuple[str, str]:
+    """분류용 입력 구성.
+
+    Returns (latest_query, classify_input)
+    - latest_query: 가장 최근 사용자 메시지 (보안 검사 대상)
+    - classify_input: 후속 답변일 때 직전 대화 맥락을 함께 담은 분류 입력.
+      "B로 해줘", "네 그렇게요" 같은 짧은 후속 답변이 직전 맥락(예: 콘크리트 타설/태풍)을
+      잃지 않고 올바른 타입(A/B)으로 분류되도록 한다.
+    """
+    latest_query = next(
+        (m.content for m in reversed(messages) if isinstance(m, HumanMessage)),
         '',
     )
+
+    # 직전 대화가 있으면 맥락으로 덧붙인다 (마지막 메시지 제외).
+    prior = messages[:-1] if messages else []
+    prior_lines = [
+        f"{'사용자' if isinstance(m, HumanMessage) else 'AI'}: {m.content}"
+        for m in prior
+        if isinstance(m, (HumanMessage, AIMessage)) and isinstance(m.content, str) and m.content.strip()
+    ]
+    if not prior_lines:
+        return latest_query, latest_query
+
+    prior_text = "\n".join(prior_lines)[-1500:]  # 과도한 토큰 방지
+    classify_input = (
+        f"[이전 대화 맥락 — 분류 참고용]\n{prior_text}\n\n"
+        f"[현재 분류할 사용자 메시지]\n{latest_query}"
+    )
+    return latest_query, classify_input
+
+
+def router_node(state: dict) -> Command:
+    log.debug('router_node 진입')
+    latest_query, classify_input = _build_classify_input(state['messages'])
 
     # 입구 보안 검사: 프롬프트 인젝션 / 시스템 정보 탈취 시도 차단.
     # 여기서 한 번 막으면 type A(weather)·type B(장비/자재/인건비) 경로 모두 보호된다.
     # 차단 시 분류·에이전트 호출을 모두 건너뛰고 바로 END로 단락한다.
     # final_response(test.py)와 AIMessage(chat.py) 두 소비 경로를 모두 채운다.
-    is_blocked, reason = check_injection(query)
+    is_blocked, reason = check_injection(latest_query)
     if is_blocked:
         log.warning(f'router_node 보안 차단: reason={reason}')
         print(f'\n[라우터] 보안 차단 ({reason}) → 요청 거절')
@@ -42,7 +71,7 @@ def router_node(state: dict) -> Command:
             goto=END,
         )
 
-    result = classify_question(query)
+    result = classify_question(classify_input)
     print(f'\n[라우터] {result["type"]} ({result["type_name"]}) — {result["reason"]}')
 
     if result['type'] == 'A':

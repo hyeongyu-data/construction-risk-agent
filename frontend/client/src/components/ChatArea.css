@@ -131,6 +131,16 @@
   flex-shrink: 0;
 }
 
+/* ── 메시지 래퍼 ── */
+.messages-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* ── 메시지 영역 ── */
 .messages {
   flex: 1;
@@ -150,6 +160,14 @@
   justify-content: flex-end;
 }
 
+.user-msg-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 75%;
+}
+
 .user-bubble {
   background-color: #f0f0f0;
   border-radius: 18px 18px 4px 18px;
@@ -157,9 +175,43 @@
   font-size: 14px;
   line-height: 1.6;
   color: #1a1a1a;
-  max-width: 75%;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 타임스탬프 */
+.msg-time {
+  font-size: 11px;
+  color: #bbb;
+  white-space: nowrap;
+  align-self: center;
+}
+.user-time {
+  align-self: flex-end;
+}
+
+/* 스크롤 하단 이동 버튼 */
+.scroll-bottom-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 24px;
+  width: 36px;
+  height: 36px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  transition: box-shadow 0.15s, color 0.15s;
+  z-index: 10;
+}
+.scroll-bottom-btn:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  color: #3a7d44;
 }
 
 /* AI 메시지: 버블 없이 좌측 텍스트 */
@@ -258,6 +310,25 @@
   gap: 10px;
 }
 
+.stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.stop-btn:hover {
+  background-color: #fee2e2;
+  border-color: #f87171;
+  color: #dc2626;
+}
+
 @keyframes b1-anim {
   0%         { opacity:0; transform:translateY(-5px); }
   7%         { opacity:1; transform:translateY(0); }
@@ -317,6 +388,23 @@
 /* ── 입력 영역 ── */
 .input-area {
   padding: 16px 24px 36px;
+}
+
+.readonly-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 20px;
+  margin: 0 24px 36px;
+  background: #f8f9fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #6b7280;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .input-box {

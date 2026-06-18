@@ -1,60 +1,262 @@
-"""Projects 라우터"""
+"""Projects 라우터 (프로젝트 관리, 권한 체크 포함)"""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from datetime import datetime
 import uuid
+from typing import Optional
 
 from api.database import get_db_cursor, dict_from_row
 from api.models import ProjectCreate, Project
+from api.security import get_current_user
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-@router.get("", response_model=list[Project])
-async def list_projects():
-    """프로젝트 목록 조회 (__quick__ 제외, created_at 내림차순)"""
+def _check_project_member(cursor, project_id: str, user_id: str) -> bool:
+    """사용자가 프로젝트의 멤버인지 확인"""
+    cursor.execute(
+        "SELECT id FROM project_members WHERE project_id = %s AND user_id = %s",
+        (project_id, user_id),
+    )
+    return cursor.fetchone() is not None
+
+
+def _check_project_owner(cursor, project_id: str, user_id: str) -> bool:
+    """사용자가 프로젝트의 owner인지 확인"""
+    cursor.execute(
+        "SELECT id FROM project_members WHERE project_id = %s AND user_id = %s AND project_role = %s",
+        (project_id, user_id, "owner"),
+    )
+    return cursor.fetchone() is not None
+
+
+@router.get("", response_model=list[dict])
+async def list_projects(current_user: dict = Depends(get_current_user)):
+    """
+    현재 사용자가 속한 프로젝트 목록 조회
+
+    응답:
+    ```json
+    [
+      {
+        "id": "project-uuid",
+        "name": "프로젝트명",
+        "site_name": "현장명",
+        "my_project_role": "owner"
+      }
+    ]
+    ```
+    """
     with get_db_cursor() as (cursor, conn):
+        # 사용자가 속한 프로젝트 조회
         cursor.execute("""
-            SELECT id, name, description, created_at
-            FROM projects
-            WHERE id != '00000000-0000-0000-0000-000000000001'
-            ORDER BY created_at DESC
-        """)
+            SELECT
+                p.id,
+                p.name,
+                p.site_name,
+                p.address,
+                p.latitude,
+                p.longitude,
+                p.work_type,
+                p.start_date,
+                p.end_date,
+                p.description,
+                p.created_by,
+                p.created_at,
+                p.updated_at,
+                pm.project_role as my_project_role
+            FROM projects p
+            INNER JOIN project_members pm ON p.id = pm.project_id
+            WHERE pm.user_id = %s
+            ORDER BY p.updated_at DESC
+        """, (current_user["user_id"],))
         rows = cursor.fetchall()
         return [dict_from_row(r) for r in rows]
 
 
-@router.post("", response_model=Project, status_code=status.HTTP_201_CREATED)
-async def create_project(req: ProjectCreate):
-    """프로젝트 생성"""
+@router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def create_project(req: ProjectCreate, current_user: dict = Depends(get_current_user)):
+    """
+    프로젝트 생성 (생성자가 자동으로 owner)
+
+    요청:
+    ```json
+    {
+      "name": "프로젝트명",
+      "site_name": "현장명",
+      "address": "주소",
+      "latitude": 37.5665,
+      "longitude": 126.978,
+      "work_type": "철근콘크리트",
+      "start_date": "2026-06-15",
+      "end_date": "2026-08-30",
+      "description": "설명"
+    }
+    ```
+    """
     project_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.utcnow().isoformat()
 
     with get_db_cursor() as (cursor, conn):
+        # 프로젝트 생성
         cursor.execute("""
-            INSERT INTO projects (id, name, description, created_at)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id, name, description, created_at
-        """, (project_id, req.name, req.description or "", now))
+            INSERT INTO projects
+            (id, name, site_name, address, latitude, longitude, work_type,
+             start_date, end_date, description, created_by, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            project_id,
+            req.name,
+            getattr(req, "site_name", None),
+            getattr(req, "address", None),
+            getattr(req, "latitude", None),
+            getattr(req, "longitude", None),
+            getattr(req, "work_type", None),
+            getattr(req, "start_date", None),
+            getattr(req, "end_date", None),
+            getattr(req, "description", None),
+            current_user["user_id"],
+            now,
+            now,
+        ))
+
+        # 생성자를 owner로 등록
+        member_id = str(uuid.uuid4())
+        cursor.execute("""
+            INSERT INTO project_members (id, project_id, user_id, project_role, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (member_id, project_id, current_user["user_id"], "owner", now))
+
         conn.commit()
+
+        # 생성된 프로젝트 반환
+        cursor.execute("""
+            SELECT
+                id, name, site_name, address, latitude, longitude,
+                work_type, start_date, end_date, description,
+                created_by, created_at, updated_at, 'owner' as my_project_role
+            FROM projects WHERE id = %s
+        """, (project_id,))
+        row = cursor.fetchone()
+        return dict_from_row(row)
+
+
+@router.get("/{project_id}", response_model=dict)
+async def get_project(project_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    프로젝트 상세 조회
+
+    권한: 프로젝트 멤버만 조회 가능
+    """
+    with get_db_cursor() as (cursor, conn):
+        # 멤버 확인
+        if not _check_project_member(cursor, project_id, current_user["user_id"]):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not a member of this project",
+            )
+
+        # 프로젝트 조회
+        cursor.execute("""
+            SELECT
+                p.id, p.name, p.site_name, p.address, p.latitude, p.longitude,
+                p.work_type, p.start_date, p.end_date, p.description,
+                p.created_by, p.created_at, p.updated_at,
+                pm.project_role as my_project_role
+            FROM projects p
+            INNER JOIN project_members pm ON p.id = pm.project_id
+            WHERE p.id = %s AND pm.user_id = %s
+        """, (project_id, current_user["user_id"]))
+        row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        return dict_from_row(row)
+
+
+@router.patch("/{project_id}", response_model=dict)
+async def update_project(
+    project_id: str,
+    req: ProjectCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    프로젝트 수정
+
+    권한: owner만 수정 가능
+    """
+    with get_db_cursor() as (cursor, conn):
+        # owner 확인
+        if not _check_project_owner(cursor, project_id, current_user["user_id"]):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only project owner can update",
+            )
+
+        # 프로젝트 수정
+        now = datetime.utcnow().isoformat()
+        cursor.execute("""
+            UPDATE projects SET
+                name = %s,
+                site_name = %s,
+                address = %s,
+                latitude = %s,
+                longitude = %s,
+                work_type = %s,
+                start_date = %s,
+                end_date = %s,
+                description = %s,
+                updated_at = %s
+            WHERE id = %s
+        """, (
+            req.name,
+            getattr(req, "site_name", None),
+            getattr(req, "address", None),
+            getattr(req, "latitude", None),
+            getattr(req, "longitude", None),
+            getattr(req, "work_type", None),
+            getattr(req, "start_date", None),
+            getattr(req, "end_date", None),
+            getattr(req, "description", None),
+            now,
+            project_id,
+        ))
+        conn.commit()
+
+        # 수정된 프로젝트 반환
+        cursor.execute("""
+            SELECT
+                p.id, p.name, p.site_name, p.address, p.latitude, p.longitude,
+                p.work_type, p.start_date, p.end_date, p.description,
+                p.created_by, p.created_at, p.updated_at,
+                'owner' as my_project_role
+            FROM projects p
+            WHERE p.id = %s
+        """, (project_id,))
         row = cursor.fetchone()
         return dict_from_row(row)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_project(project_id: str):
-    """프로젝트 삭제 (기본 프로젝트 제외)"""
-    # 기본 프로젝트 보호
-    if project_id == "00000000-0000-0000-0000-000000000001":
-        raise HTTPException(status_code=400, detail="Cannot delete default project")
+async def delete_project(
+    project_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    프로젝트 삭제
 
+    권한: owner만 삭제 가능
+    """
     with get_db_cursor() as (cursor, conn):
-        # 존재 확인
-        cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Project not found")
+        # owner 확인
+        if not _check_project_owner(cursor, project_id, current_user["user_id"]):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only project owner can delete",
+            )
 
-        # 삭제
+        # 프로젝트 삭제 (cascade로 project_members도 삭제됨)
         cursor.execute("DELETE FROM projects WHERE id = %s", (project_id,))
         conn.commit()
 

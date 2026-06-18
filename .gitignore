@@ -31,3 +31,5 @@ Thumbs.db
 # logs
 *.log
 agents/router/logs/
+# Logs
+agents/router/logs/
