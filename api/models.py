@@ -41,9 +41,15 @@ class ConversationUpdate(BaseModel):
 
 class Conversation(BaseModel):
     id: str
-    project_id: str
+    project_id: Optional[str]
+    owner_id: str
+    owner_name: str
     title: str
+    visibility: str
+    can_write: bool
+    message_count: int
     created_at: datetime
+    updated_at: Optional[datetime]
 
     class Config:
         from_attributes = True
@@ -52,8 +58,11 @@ class Conversation(BaseModel):
 # ── Messages ──────────────────────────────────────────────────────
 
 class Message(BaseModel):
-    role: str  # 'user' | 'assistant'
+    id: str
+    conversation_id: str
+    role: str
     content: str
+    agent: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -78,6 +87,13 @@ class ChatResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+
+
+# ── Members ───────────────────────────────────────────────────────
+
+class MemberAddRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+    role: str = "member"
 
 
 # ── Auth ───────────────────────────────────────────────────────

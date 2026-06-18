@@ -37,8 +37,14 @@ app.include_router(chat.router)
 
 @app.on_event("startup")
 async def startup_event():
-    """앱 시작 시 DB 초기화 (필요시)"""
+    """앱 시작 시 그래프 사전 로드 (첫 요청 지연 제거)"""
     print("[INFO] API started - Construction Risk Agent")
+    try:
+        from api.routers.chat import get_graph
+        get_graph()
+        print("[INFO] AI graph 로드 완료")
+    except Exception as e:
+        print(f"[WARN] AI graph 로드 실패 (요청 시 재시도됨): {e}")
 
 
 @app.on_event("shutdown")

@@ -62,7 +62,7 @@ def router_node(state: dict) -> Command:
     is_blocked, reason = check_injection(latest_query)
     if is_blocked:
         log.warning(f'router_node 보안 차단: reason={reason}')
-        print(f'\n[라우터] 보안 차단 ({reason}) → 요청 거절')
+        print(f'\n[라우터] 보안 차단 ({reason}) -> 요청 거절')
         return Command(
             update={
                 'final_response': BLOCKED_RESPONSE,
@@ -71,31 +71,51 @@ def router_node(state: dict) -> Command:
             goto=END,
         )
 
-    plan = classify_question(classify_input)
-    needs_weather = plan['needs_weather']
-    # 관련 비용 에이전트(플래너 결정). 비어 있으면 폴백: weather면 장비·인력, 아니면 전체.
-    agents = plan['agents'] or (['equipment', 'labor_cost'] if needs_weather else ['equipment', 'material', 'labor_cost'])
+    result = classify_question(classify_input)
+    needs_weather = result["needs_weather"]
+    agents = result.get("agents", [])
+    reason = result.get("reason", "")
 
-    print(f'\n[라우터] weather={needs_weather}, agents={agents} — {plan["reason"]}')
+    question_type = 'A' if needs_weather else 'B'
+    print(f'\n[라우터] {"A(기상악화)" if needs_weather else "B(현장변경)"} - {reason}')
+    print(f'[라우터] 실행 에이전트: {agents}')
+
+    # 건설 무관 질문 — 에이전트 호출 없이 바로 종료
+    if not needs_weather and not agents:
+        off_topic = (
+            "안녕하세요! 저는 건설 현장 리스크 분석 AI입니다.\n\n"
+            "다음과 같은 질문에 도움을 드릴 수 있습니다:\n"
+            "- **기상 리스크**: 날씨로 인한 공정 지연 분석\n"
+            "- **인건비 산출**: 표준품셈 기반 직접노무비\n"
+            "- **장비 비용**: 장비 대기 및 임대 비용\n"
+            "- **자재 가격**: 건설 자재 시세 및 조달 리스크\n\n"
+            "건설 현장 관련 질문을 입력해 주세요."
+        )
+        log.info("router_node: 건설 무관 질문 -> 즉시 종료")
+        return Command(
+            update={
+                'question_type': question_type,
+                'needs_weather': False,
+                'target_agents': [],
+                'final_response': off_topic,
+                'messages': [AIMessage(content=off_topic)],
+            },
+            goto=END,
+        )
+
+    # agents가 비어 있으면 폴백: weather면 장비·인력, 아니면 전체
+    if not agents:
+        agents = ['equipment', 'labor_cost'] if needs_weather else ['equipment', 'material', 'labor_cost']
 
     if needs_weather:
-        # 기상 선행: weather가 지연일수를 산출한 뒤 계획된 비용 에이전트로 핸드오프.
-        update = {
-            'question_type': 'A',
-            'needs_weather': True,
-            'target_agents': agents,
-        }
         goto = 'weather'
-        goto_names = f'weather → {agents}'
+        goto_names = f'weather -> {agents}'
     else:
-        # 기상 불필요: 계획된 비용 에이전트만 병렬 실행.
-        update = {
-            'question_type': 'B',
-            'needs_weather': False,
-            'target_agents': agents,
-        }
-        goto = [Send(a, state) for a in agents]
+        goto = [Send(agent, state) for agent in agents]
         goto_names = ', '.join(agents)
 
-    log.info(f"router_node 분기: weather={needs_weather} → {goto_names}")
-    return Command(update=update, goto=goto)
+    log.info(f"router_node 분기: {question_type} -> {goto_names}")
+    return Command(
+        update={'question_type': question_type, 'needs_weather': needs_weather, 'target_agents': agents},
+        goto=goto,
+    )

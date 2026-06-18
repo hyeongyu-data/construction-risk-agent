@@ -8,7 +8,7 @@ import uuid
 from langchain_core.messages import HumanMessage, AIMessage
 
 from api.database import get_db_cursor, dict_from_row
-from api.models import ChatRequest, ChatResponse
+from api.models import ChatRequest, Message
 
 router = APIRouter(tags=["chat"])
 
@@ -34,8 +34,8 @@ def get_graph():
     return _graph
 
 
-@router.post("/conversations/{conv_id}/chat", response_model=ChatResponse)
-async def chat(conv_id: str, req: ChatRequest):
+@router.post("/conversations/{conv_id}/chat", response_model=Message)
+def chat(conv_id: str, req: ChatRequest):
     """
     채팅 (핵심 엔드포인트)
 
@@ -116,4 +116,11 @@ async def chat(conv_id: str, req: ChatRequest):
 
         conn.commit()
 
-        return {"content": ai_response_content}
+        return {
+            "id": ai_msg_id,
+            "conversation_id": conv_id,
+            "role": "assistant",
+            "content": ai_response_content,
+            "agent": None,
+            "created_at": now.isoformat(),
+        }
