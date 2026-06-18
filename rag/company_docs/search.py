@@ -13,7 +13,7 @@ material_cost_agent, equipment_cost_agent에서 LangChain Tool로 직접 사용 
   result = search_contract_price.invoke({"material_name": "철근 SD400"})
 
   from rag.company_docs.search import search_equipment_standby_terms
-  result = search_equipment_standby_terms.invoke({
+  result = search_equipment_contract_terms.invoke({
       "equipment_name": "크레인",
       "risk_type": "강풍"
   })
@@ -391,7 +391,7 @@ def search_contract_terms(query: str) -> str:
 
 
 @tool
-def search_equipment_standby_terms(
+def search_equipment_contract_terms(
     equipment_name: str,
     risk_type: str = "기상",
 ) -> str:
