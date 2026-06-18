@@ -23,6 +23,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(_HERE, '..')))
 from config import MODEL_ID, SYNTHESIS_MAX_TOKENS, SYNTHESIS_TEMPERATURE
 from logger import get_logger
 
+# few-shot 예시 (형식/구성 참고용). 파일이 없거나 로드 실패해도 합성은 정상 동작한다.
+try:
+    from synthesis_examples import select_examples
+except Exception:  # pragma: no cover - 예시 없을 때 안전 폴백
+    def select_examples(query, k=1):
+        return []
+
 log = get_logger(__name__)
 
 _bedrock = boto3.client(
@@ -88,8 +95,34 @@ def _call_llm(prompt: str) -> str:
     return text
 
 
+def _few_shot_block(query: str, k: int = 1) -> str:
+    """질문과 유사한 모범 답변 예시를 형식 참고용으로 구성. 수치 인용은 금지한다."""
+    try:
+        examples = select_examples(query, k=k)
+    except Exception:
+        examples = []
+    if not examples:
+        return ""
+
+    blocks = []
+    for i, ex in enumerate(examples, 1):
+        blocks.append(f"[예시 {i} - 질문]\n{ex['question']}\n\n[예시 {i} - 모범 답변]\n{ex['answer']}")
+    joined = "\n\n".join(blocks)
+
+    return (
+        "[형식 참고 예시]\n"
+        "아래는 좋은 최종 답변의 형식·구성·어조 예시입니다. "
+        "구성(항목 구분, 계약/현재단가 병기, 가정·확인사항·요약 포함)과 말투만 참고하세요.\n"
+        "절대 예시의 수치·금액·현장명·규격을 답변에 사용하지 마세요. "
+        "수치는 반드시 아래 실제 [에이전트 응답] 값만 인용합니다.\n\n"
+        f"{joined}\n\n"
+        "──────────\n\n"
+    )
+
+
 def _synthesis_prompt(query: str, question_type: str, responses: dict) -> str:
     sections = "\n\n".join(f"[{label} 응답]\n{text}" for label, text in responses.items())
+    few_shot = _few_shot_block(query)
 
     weather_note = ""
     if question_type == 'A' and '기상 에이전트' in responses:
@@ -102,7 +135,7 @@ def _synthesis_prompt(query: str, question_type: str, responses: dict) -> str:
     return f"""당신은 건설 현장 리스크/비용 산정 요청에 대해 여러 전문 에이전트가 각자 답한 내용을
 하나의 최종 답변으로 정리하는 역할입니다.
 
-[사용자 질문]
+{few_shot}[사용자 질문]
 {query}
 
 {weather_note}{sections}
