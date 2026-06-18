@@ -7,6 +7,7 @@ class RiskState(TypedDict):
     question_type: Optional[str]       # 'A' (기상악화) | 'B' (현장변경)
     project_id: Optional[str]          # 프로젝트 ID (프론트에서 설정)
     labor_cost_response: Optional[str]
+    labor_cost_result: Optional[dict]
     equipment_response: Optional[str]
     equipment_result: Optional[dict]
     weather_response: Optional[str]
