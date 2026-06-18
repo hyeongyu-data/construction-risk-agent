@@ -27,3 +27,7 @@ frontend/client/build/
 # OS
 .DS_Store
 Thumbs.db
+
+# logs
+*.log
+agents/router/logs/
