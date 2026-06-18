@@ -164,20 +164,34 @@ def run_material_cost_agent(user_query: str, verbose: bool = True) -> dict:
     }
 
 
-# ── 직접 실행 테스트 ──────────────────────────────────────────────
+# ── 인터랙티브 챗봇 루프 ─────────────────────────────────────────
 if __name__ == "__main__":
-    test_queries = [
-        # [0] 기본 - 추가 물량 자재비 계산
-        "이번 공정에서 ㄱ형강이 추가로 500ton 필요한데, 이에 따른 추가비용 계산해줘.",
-        # [1] 자재명 + 단위 명시
-        "방수재가 추가로 300㎡ 필요해. 계약단가랑 현재단가 기준으로 각각 얼마야?",
-        # [2] 여러 자재 동시 조회
-        "합판이랑 시멘트가 각각 100매, 50포대 추가로 필요한데 총 추가비용 계산해줘.",
-        # [3] 자재 카테고리 확인
-        "조회 가능한 자재 종류가 뭐가 있어?",
-        # [4] 시황성 자재 여부 확인
-        "철근은 시황성 자재야? 현재 단가도 알려줘.",
-    ]
+    agent = create_material_cost_agent()
+    messages = []
 
-    TEST_INDEX = 2
-    run_material_cost_agent(test_queries[TEST_INDEX], verbose=True)
+    print("=" * 60)
+    print("자재 단가 계산 에이전트")
+    print("종료하려면 'q' 또는 'exit' 입력")
+    print("=" * 60)
+
+    while True:
+        try:
+            user_input = input("\n질문: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n종료합니다.")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in ("q", "exit", "quit"):
+            print("종료합니다.")
+            break
+
+        messages.append(HumanMessage(content=user_input))
+        result = agent.invoke({"messages": messages})
+
+        # 대화 히스토리에 AI 응답 누적
+        messages = result["messages"]
+        response = messages[-1].content
+
+        print(f"\n에이전트: {response}")

@@ -6,56 +6,129 @@
   background-color: #ffffff;
 }
 
-/* ── 초기 화면 ── */
+/* ── 웰컴 화면 ── */
 .centered-welcome {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 24px 80px;
+  padding: 0 24px 60px;
   text-align: center;
 }
 
+.welcome-header {
+  margin-bottom: 32px;
+}
+
+.welcome-logo {
+  font-size: 26px;
+  font-weight: 800;
+  color: #14532d;
+  letter-spacing: -0.5px;
+  margin-bottom: 14px;
+}
+
+.welcome-logo span {
+  color: #3a7d44;
+  font-weight: 400;
+}
+
 .centered-welcome h2 {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   color: #1a1a1a;
-  margin-bottom: 24px;
+  margin: 0 0 8px;
+}
+
+.welcome-subtitle {
+  font-size: 13px;
+  color: #999;
+  margin: 0;
 }
 
 .centered-input-area {
   width: 100%;
   max-width: 640px;
-  margin-top: 16px;
+  margin-top: 24px;
 }
 
-.example-prompts {
+/* ── 에이전트 카드 그리드 ── */
+.agent-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  max-width: 580px;
+}
+
+.agent-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.12s;
+}
+
+.agent-card:hover {
+  border-color: var(--card-icon-color, #3a7d44);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+.agent-card-icon {
+  width: 38px;
+  height: 38px;
+  background: var(--card-accent, #f0f7f1);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--card-icon-color, #3a7d44);
+  flex-shrink: 0;
+}
+
+.agent-card-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-  margin-bottom: 0;
+  gap: 4px;
+  padding-top: 1px;
 }
 
-.example-prompts button {
-  padding: 7px 18px;
-  background: none;
-  border: 1px solid #e5e5e5;
-  border-radius: 24px;
+.agent-card-title {
   font-size: 13px;
-  color: #444;
-  cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s;
-  width: 100%;
-  max-width: 380px;
-  text-align: center;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.3;
 }
 
-.example-prompts button:hover {
-  border-color: #aaa;
-  background-color: #f9f9f9;
+.agent-card-desc {
+  font-size: 11.5px;
+  color: #888;
+  line-height: 1.45;
+}
+
+/* ── 에이전트 뱃지 ── */
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: 0.1px;
+}
+
+.agent-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ── 메시지 영역 ── */
@@ -114,6 +187,16 @@
 .md-li { margin: 2px 0 2px 16px; font-size: 14px; line-height: 1.7; list-style: disc; }
 .md-gap { height: 6px; }
 .md-hr { border: none; border-top: 1px solid #e5e5e5; margin: 12px 0; }
+.md-bq {
+  border-left: 3px solid #e0e0e0;
+  padding: 6px 12px;
+  margin: 6px 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #fafafa;
+  border-radius: 0 4px 4px 0;
+}
 
 .md-table-wrap { overflow-x: auto; margin: 8px 0; }
 .md-table { border-collapse: collapse; font-size: 13px; width: 100%; }
@@ -141,6 +224,7 @@
 
 .think-label.animate {
   color: #bbb;
+  animation: blink 1.4s infinite;
 }
 
 /* 액션 버튼 바 */
@@ -174,8 +258,6 @@
   gap: 10px;
 }
 
-/* 각 벽돌: 순서대로 등장 → 전체 유지 → 동시 소멸 → 반복 */
-/* 전체 주기 3s, 7% 간격으로 등장 */
 @keyframes b1-anim {
   0%         { opacity:0; transform:translateY(-5px); }
   7%         { opacity:1; transform:translateY(0); }
@@ -232,10 +314,6 @@
   50% { opacity: 1; }
 }
 
-.think-label.animate {
-  animation: blink 1.4s infinite;
-}
-
 /* ── 입력 영역 ── */
 .input-area {
   padding: 16px 24px 36px;
@@ -248,14 +326,15 @@
   align-items: flex-end;
   gap: 10px;
   background-color: #f9f9f9;
-  border: 1px solid #e5e5e5;
+  border: 1.5px solid #e5e5e5;
   border-radius: 24px;
   padding: 10px 16px;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .input-box:focus-within {
-  border-color: #aaa;
+  border-color: #3a7d44;
+  box-shadow: 0 0 0 3px rgba(58, 125, 68, 0.08);
 }
 
 .input-box textarea {
@@ -291,14 +370,10 @@
 }
 
 .send-btn:hover:not(:disabled) {
-  background-color: #333;
+  background-color: #3a7d44;
 }
 
 .send-btn:disabled {
   background-color: #ccc;
   cursor: default;
-}
-
-.disclaimer {
-  display: none;
 }
