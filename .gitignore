@@ -29,4 +29,4 @@ frontend/client/build/
 Thumbs.db
 
 # Logs
-agents/router/logs/*.log
+agents/router/logs/
