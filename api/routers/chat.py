@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from datetime import datetime
 import uuid
 from langchain_core.messages import HumanMessage, AIMessage
+from psycopg2.extras import Json
 
 from api.database import get_db_cursor, dict_from_row
 from api.models import ChatRequest, Message
@@ -91,6 +92,7 @@ def chat(conv_id: str, req: ChatRequest):
         try:
             graph = get_graph()
             ai_response_content = None
+            structured_response = None
 
             for evt in graph.stream({
                 "messages": lc_messages,
@@ -99,6 +101,8 @@ def chat(conv_id: str, req: ChatRequest):
                 # synthesize_node가 최종 응답을 final_response에 반환
                 if evt.get("final_response"):
                     ai_response_content = evt["final_response"]
+                if evt.get("structured_response"):
+                    structured_response = evt["structured_response"]
 
             if not ai_response_content:
                 raise RuntimeError("No AI response generated")
@@ -120,9 +124,16 @@ def chat(conv_id: str, req: ChatRequest):
         # AI 응답 메시지
         ai_msg_id = str(uuid.uuid4())
         cursor.execute("""
-            INSERT INTO messages (id, conversation_id, role, content, created_at)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (ai_msg_id, conv_id, "assistant", ai_response_content, now))
+            INSERT INTO messages (id, conversation_id, role, content, structured_response, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            ai_msg_id,
+            conv_id,
+            "assistant",
+            ai_response_content,
+            Json(structured_response) if structured_response is not None else None,
+            now,
+        ))
 
         conn.commit()
 
@@ -131,6 +142,8 @@ def chat(conv_id: str, req: ChatRequest):
             "conversation_id": conv_id,
             "role": "assistant",
             "content": ai_response_content,
+            "final_response": ai_response_content,
+            "structured_response": structured_response,
             "agent": None,
             "created_at": now.isoformat(),
         }

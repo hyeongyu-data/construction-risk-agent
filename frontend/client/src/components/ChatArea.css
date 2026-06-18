@@ -237,6 +237,118 @@
   word-break: break-word;
 }
 
+.structured-card {
+  width: min(100%, 760px);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.structured-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8faf9;
+}
+
+.structured-card-header span {
+  color: #14532d;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.structured-card-header small {
+  color: #3a7d44;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.structured-message {
+  padding: 14px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  background: #e5e7eb;
+}
+
+.summary-grid > div {
+  min-width: 0;
+  padding: 12px;
+  background: #fbfdfb;
+}
+
+.summary-grid span {
+  display: block;
+  margin-bottom: 5px;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.summary-grid strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.report-section {
+  padding: 12px 14px;
+  border-top: 1px solid #edf0ed;
+}
+
+.report-section h4 {
+  margin: 0 0 8px;
+  color: #374151;
+  font-size: 13px;
+}
+
+.report-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cost-breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cost-breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 13px;
+}
+
+.cost-breakdown-row strong {
+  color: #14532d;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* 마크다운 스타일 */
 .md-h2 { font-size: 15px; font-weight: 600; color: #1a1a1a; margin: 14px 0 4px; }
 .md-h3 { font-size: 14px; font-weight: 600; color: #333; margin: 10px 0 4px; }

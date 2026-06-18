@@ -19,8 +19,31 @@ export interface Message {
   conversation_id: string;
   role: 'user' | 'assistant';
   content: string;
+  final_response?: string | null;
+  structured_response?: StructuredResponse | null;
   agent?: AgentType | null;
   created_at: string;
+}
+
+export type AnswerType = 'CHAT' | 'RAG_QA' | 'COST_REPORT' | 'RISK_REPORT' | 'MISSING_INFO';
+
+export interface StructuredResponse {
+  answer_type?: AnswerType;
+  message?: string;
+  summary?: {
+    total_extra_cost?: number | string | null;
+    risk_level?: string | null;
+    delay_days?: number | string | null;
+    main_cause?: string | null;
+    [key: string]: unknown;
+  };
+  cost_breakdown?: Array<Record<string, unknown>>;
+  calculation_details?: Array<Record<string, unknown>>;
+  evidence?: Array<Record<string, unknown>>;
+  items?: Array<Record<string, unknown>>;
+  assumptions?: Array<Record<string, unknown> | string>;
+  missing_info?: Array<Record<string, unknown> | string>;
+  [key: string]: unknown;
 }
 
 export interface Project {
