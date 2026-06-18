@@ -52,7 +52,16 @@ def _get_query(state: dict) -> str:
 
 
 def _looks_irrelevant(text: str) -> bool:
-    return any(marker in text for marker in _IRRELEVANT_MARKERS)
+    if any(marker in text for marker in _IRRELEVANT_MARKERS):
+        return True
+    # JSON 구조화 응답에서 status: IRRELEVANT 감지
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and data.get('status') == 'IRRELEVANT':
+            return True
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return False
 
 
 def _collect_responses(state: dict) -> dict:
@@ -100,7 +109,8 @@ def _synthesis_prompt(query: str, question_type: str, responses: dict) -> str:
 
 규칙:
 - 사용자 질문과 실제로 관련된 답변만 골라 정리하세요.
-- "이 질문은 제 도메인이 아닙니다" 류의 무관한 거절 응답은 결과에 포함하지 마세요.
+- JSON 응답에서 "status"가 "IRRELEVANT"이거나, "이 질문은 제 도메인이 아닙니다" 류의 거절 응답은 결과에 포함하지 마세요.
+- JSON 응답의 "status"가 "CALCULATED" 또는 "PARTIAL"이면 관련 있는 응답입니다.
 - 관련 답변이 여러 개면(예: 장비+인건비 둘 다 관련) 모두 통합해서 하나의 답변으로 작성하세요.
 - 모든 에이전트가 무관하다고 판단했다면, 어떤 종류의 질문이면 도움을 줄 수 있는지 간단히 안내하세요.
 - JSON 필드명을 그대로 노출하지 말고 자연스러운 문장으로 작성하세요.

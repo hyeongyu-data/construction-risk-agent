@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import re
+import importlib.util
 from langchain_core.messages import AIMessage
 from logger import get_logger
 
@@ -17,11 +18,20 @@ _ROUTER_ROOT  = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 _EQUIP_PATH   = os.path.abspath(os.path.join(_ROUTER_ROOT, '..', 'equipment_cost'))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_ROUTER_ROOT, '..', '..'))
 
-for p in [_EQUIP_PATH, _PROJECT_ROOT]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
-from equipment_cost_node import equipment_cost_node as _equipment_cost_node
+# 주의: `from equipment_cost_node import ...`는 sys.path 순서에 따라
+# labor_cost/tools.py 등 동일 이름 모듈과 sys.modules 충돌이 발생한다.
+# 절대 경로로 직접 로드해 충돌을 막는다.
+_equip_node_spec = importlib.util.spec_from_file_location(
+    'actual_equipment_cost_node_module',
+    os.path.join(_EQUIP_PATH, 'equipment_cost_node.py'),
+)
+_equip_node_module = importlib.util.module_from_spec(_equip_node_spec)
+_equip_node_spec.loader.exec_module(_equip_node_module)
+
+_equipment_cost_node = _equip_node_module.equipment_cost_node
 
 
 # ── 헬퍼: content 타입 정규화 ────────────────────────────────
