@@ -12,12 +12,15 @@ NO_DATA fallback:
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
 import httpx
 from dotenv import load_dotenv
+
+_log = logging.getLogger(__name__)
 
 from weather_risk.models import ForecastSource, KST
 from weather_risk.resolvers.base_time_resolver import BaseTime, BaseTimeResolver
@@ -179,11 +182,18 @@ class KmaClient:
                     resp = client.get(url, params=params)
 
                 if resp.status_code >= 500:
-                    raise KmaServerError(f"HTTP {resp.status_code}")
+                    # KMA 서버 에러 본문(원인 진단용)을 로깅한다. 보통 117바이트 내외의
+                    # JSON으로 무효 authKey / 데이터 없음 등의 사유가 들어 있다.
+                    _log.warning(
+                        "KMA HTTP %s — url=%s params=%s body=%s",
+                        resp.status_code, url, params, resp.text[:500],
+                    )
+                    raise KmaServerError(f"HTTP {resp.status_code}: {resp.text[:300]}")
 
                 try:
                     data = resp.json()
                 except Exception as exc:
+                    _log.warning("KMA JSON 파싱 실패 — body=%s", resp.text[:500])
                     raise KmaResponseFormatError(f"JSON parse error: {exc}") from exc
 
                 try:

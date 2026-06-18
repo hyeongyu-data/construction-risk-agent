@@ -17,45 +17,45 @@ _bedrock = boto3.client(
     region_name=os.getenv("AWS_BEDROCK_REGION", "us-east-1"),
 )
 
-# 타입 설명 문자열 — 모듈 레벨 상수로 캐싱 (호출마다 재조립 방지)
-_TYPE_DESCRIPTIONS = "\n".join(
-    f"- {t}: {info['name']} ({info['description']})"
-    for t, info in QUESTION_TYPES.items()
-)
+# 비용 도메인 = 그래프 노드 이름과 1:1 매칭 (weather는 선행 게이트라 별도 처리)
+_COST_AGENTS = ("equipment", "material", "labor_cost")
+_DEFAULT_AGENTS = ["equipment", "material", "labor_cost"]   # 무관/파싱실패 시 폴백(전부)
+_WEATHER_DEFAULT_AGENTS = ["equipment", "labor_cost"]       # 기상 지연 → 장비·인력 대기
+
 
 def classify_question(query: str) -> dict:
-    """질문을 A/B로 분류하고 타입과 이유를 반환."""
+    """질문을 분석해 실행 계획을 반환한다.
+
+    Returns:
+        {
+          "needs_weather": bool,        # 기상 분석 선행 필요 여부
+          "agents": [<cost agent>...],  # equipment/material/labor_cost 중 관련된 것만
+          "reason": str,
+        }
+    """
     log.debug(f"classify_question 호출 — query={query!r}")
-    prompt = f"""다음 건설 현장 질문을 A 또는 B로 분류하세요.
+    prompt = f"""다음 건설 현장 질문을 분석해 실행 계획을 JSON으로 반환하세요.
 
-질문 타입:
-{_TYPE_DESCRIPTIONS}
+[비용 도메인] — 질문에 실제로 관련된 것만 고른다.
+- equipment: 장비 대기비 (크레인·펌프차·타워크레인·굴착기·고소작업대·임대료·장비 대기 등)
+- material: 자재비 (자재 단가·추가 물량·발주·철근·레미콘·H파일 등)
+- labor_cost: 인건비 (노임단가·인부·품셈·직접노무비·인력 투입 등)
 
-[분류 규칙] — 반드시 아래 순서로 판단한다.
+[기상 선행 판단 — needs_weather]
+- true: 비·눈·바람·태풍·한파·폭염 등 기상 사유가 있고, 지연 일수가 아직 확정되지 않아
+  기상 예보를 먼저 확인·추정해야 하는 경우. (예: "내일 비온다는데 확인하고 지연 추측해서 비용 산정")
+  → 기상 분석이 먼저 지연 일수를 산출한 뒤 그 결과로 비용 에이전트가 산정한다.
+- false: 지연 일수가 이미 확정됐거나(예: "3일 대기했다", "이틀째 멈춰 있다") 기상과 무관한 경우.
 
-규칙 1. 지연 일수/지연 여부를 아직 모르고, 기상 예보를 확인해야 알 수 있는 경우 → A
-  - 미래 기상 이슈를 다루며, 지연 일수를 사용자가 명시하지 않고 "확인하고", "추측해서",
-    "있을 것 같은데", "예상되는" 등 미확정 표현으로 기상청 조회·추정을 요청하는 경우
-  - 비용 산정을 함께 요청했더라도, 지연 일수가 아직 정해지지 않아 기상 분석이 선행되어야 하면 A
-    (기상 에이전트가 예보를 조회해 지연 일수를 산출한 뒤, 그 결과로 장비/인건비 비용까지 자동 산정됨)
-  - 예: "내일 비온다는데 확인하고 지연 일자 추측해서 추가비용 산정해줘" → A
-
-규칙 2. 비용 산정이 핵심 의도이고, 지연 일수/지연 사실이 이미 확정되어 있는 경우 → B
-  - 장비 대기 비용, 추가 비용, 얼마인가요, 산정해주세요 등이 포함된 경우
-  - 기상 원인이 언급되었더라도 "3일 대기했다", "이틀째 멈춰 있다" 처럼 지연 일수가 이미
-    주어져 있어 기상 예보 확인이 더 필요 없으면 B
-  - 예: "강풍으로 크레인이 2일 대기했는데 비용은요?" → B
-
-규칙 3. 비용 산정 의도 없이 기상 원인만 언급된 경우 → A
-  - 기상 영향 분석, 공정 지연 우려, 기상 리스크 평가가 목적인 경우
-  - 예: "태풍으로 철골 공정이 지연될 것 같습니다" → A
-
-규칙 4. 애매한 경우 기본값은 B
+[규칙]
+1. needs_weather=true인데 비용 도메인이 명확하지 않으면 agents=["equipment","labor_cost"] (기상 지연 → 장비·인력 대기).
+2. 어떤 비용 도메인과도 무관하고 기상도 아니면 agents=[] (빈 배열).
+3. 애매하면 관련 가능성이 있는 도메인을 모두 포함한다.
 
 질문: {query}
 
 JSON으로만 응답하세요:
-{{"type": "A" or "B", "reason": "한 줄 이유"}}"""
+{{"needs_weather": true 또는 false, "agents": ["equipment"|"material"|"labor_cost", ...], "reason": "한 줄 이유"}}"""
 
     response = _bedrock.invoke_model(
         modelId=MODEL_ID,
@@ -80,23 +80,25 @@ JSON으로만 응답하세요:
 
     try:
         parsed = json.loads(text)
-        question_type = parsed["type"]
-        if question_type not in QUESTION_TYPES:
-            raise ValueError(f"알 수 없는 question_type: {question_type}")
-    except (json.JSONDecodeError, KeyError, ValueError) as e:
-        log.warning(f"분류 파싱 실패 ({e}), B로 기본 처리. 원본: {text!r}")
+        needs_weather = bool(parsed.get("needs_weather", False))
+        raw_agents = parsed.get("agents", []) or []
+        # 허용된 비용 도메인만, 순서·중복 정리
+        agents = [a for a in _COST_AGENTS if a in raw_agents]
+        reason = parsed.get("reason", "")
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+        log.warning(f"분류 파싱 실패 ({e}), 전체 에이전트로 기본 처리. 원본: {text!r}")
         return {
-            "type": "B",
-            "type_name": QUESTION_TYPES["B"]["name"],
-            "reason": "파싱 실패, B(현장_변경)로 기본 처리",
+            "needs_weather": False,
+            "agents": list(_DEFAULT_AGENTS),
+            "reason": "파싱 실패, 전체 비용 에이전트로 기본 처리",
         }
 
-    log.info(f"분류 결과: {question_type} — 근거: {parsed.get('reason', '')}")
-    return {
-        "type": question_type,
-        "type_name": QUESTION_TYPES[question_type]["name"],
-        "reason": parsed.get("reason", ""),
-    }
+    # 폴백 보정
+    if needs_weather and not agents:
+        agents = list(_WEATHER_DEFAULT_AGENTS)
+
+    log.info(f"분류 결과: needs_weather={needs_weather}, agents={agents} — 근거: {reason}")
+    return {"needs_weather": needs_weather, "agents": agents, "reason": reason}
 
 
 if __name__ == "__main__":
@@ -104,8 +106,10 @@ if __name__ == "__main__":
     samples = [
         "태풍으로 철골 세우기 공정이 3일 지연될 것 같습니다.",
         "굴착기 0.7㎥ 1대가 3일 공정이 지연되어 대기 중입니다. 장비 대기 추가 비용이 얼마인가요?",
+        "내일 비온다는데 확인하고 지연 일자 추측해서 추가비용 산정해줘",
+        "철근 200톤 추가 발주 자재비 알려줘",
     ]
     for q in samples:
         r = classify_question(q)
-        print(f"[{r['type']}] {r['type_name']} — {r['reason']}")
+        print(f"[weather={r['needs_weather']}] agents={r['agents']} — {r['reason']}")
         print(f"  질문: {q}\n")

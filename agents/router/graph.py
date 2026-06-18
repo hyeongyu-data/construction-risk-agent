@@ -1,11 +1,16 @@
 """
-건설 리스크 통합 LangGraph
-START → router (분류 + Command 핸드오프)
-          → A: weather → equipment/labor_cost (병렬) ┐
-          → B: equipment/material/labor_cost (병렬)   ├→ synthesize → END
-                                                        ┘
-weather_node도 Command로 직접 라우팅한다 (분석 실패 시 synthesize로 직행,
-성공 시 equipment/labor_cost로 핸드오프) — graph.py에는 weather의 정적 outgoing edge가 없다.
+건설 리스크 통합 LangGraph (플래너 기반 동적 라우팅)
+START → router (플래너: needs_weather + 관련 agents 결정 + Command 핸드오프)
+          → needs_weather=True : weather → (계획된 비용 에이전트만 병렬) ┐
+          → needs_weather=False: (계획된 비용 에이전트만 병렬)            ├→ synthesize → END
+                                                                          ┘
+- router_node가 classify_question의 계획(needs_weather, target_agents)에 따라
+  Send로 관련 에이전트만 직접 라우팅한다 (A/B 고정 분기 제거, conditional_edges 불필요).
+- weather_node도 Command로 직접 라우팅한다: 분석 실패 시 synthesize로 직행,
+  성공 시 state['target_agents'](기본 equipment/labor_cost)로만 핸드오프.
+  → graph.py에는 weather의 정적 outgoing edge가 없다.
+- 비용 에이전트(equipment/material/labor_cost)는 실행되면 synthesize로 모인다.
+  계획에서 빠진 에이전트는 애초에 호출되지 않는다.
 """
 from langgraph.graph import StateGraph, START, END
 

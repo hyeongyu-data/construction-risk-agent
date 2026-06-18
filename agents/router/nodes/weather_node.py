@@ -40,12 +40,17 @@ def _cost_request_message(response_json: dict) -> HumanMessage:
         delay_days = max(delay_days, min_days)
 
     return HumanMessage(content=(
-        f"[기상 리스크 분석 결과]\n"
+        f"[기상 리스크 분석 결과 — 참고용]\n"
         f"현장: {site.get('site_name', '-')} / 공종: {work.get('work_type', '-')}\n"
         f"위험도: {risk_level} / 작업 중단 필요: {'예' if stoppage else '아니오'}\n"
-        f"권장 지연일수: {delay_days}일\n\n"
-        f"위 기상 리스크로 인해 발생하는 장비 대기 비용과 인건비 대기 비용을 "
-        f"권장 지연일수({delay_days}일) 기준으로 산정해 주세요."
+        f"기상 분석 권장 지연일수: {delay_days}일\n\n"
+        f"[일수·수량 적용 우선순위]\n"
+        f"1. 사용자가 원문에서 직접 명시한 대기일수·지연일수·투입 인원/일수가 있으면 그 값을 최우선으로 사용한다.\n"
+        f"   (예: '펌프카 1대 1일 대기', '콘크리트공 4명·보통인부 3명 2일 추가 투입')\n"
+        f"2. 사용자가 명시하지 않은 항목에 한해, 위 기상 분석 권장 지연일수({delay_days}일)를 참고값으로 사용한다.\n"
+        f"3. 기상 권장 지연일수가 사용자 명시 수치를 덮어쓰지 않는다. "
+        f"   특히 권장 지연일수가 0일이어도 사용자가 대기/투입을 명시했으면 그 값으로 비용을 산정한다.\n\n"
+        f"위 원칙에 따라 장비 대기 비용과 인건비를 산정해 주세요."
     ))
 
 
@@ -98,10 +103,13 @@ def weather_node(state: dict) -> Command:
         cost_request = _cost_request_message(response.model_dump(mode='json'))
         payload = {**state, 'messages': state['messages'] + [cost_request]}
 
-        print('\n[기상 에이전트] 완료 → 장비/인건비 에이전트로 전달')
+        # 플래너가 정한 비용 에이전트로만 핸드오프 (기본: 장비·인력 대기).
+        # material은 기상 지연과 무관하므로 플래너가 명시했을 때만 포함된다.
+        targets = state.get('target_agents') or ['equipment', 'labor_cost']
+        print(f'\n[기상 에이전트] 완료 → {targets}로 전달')
         return Command(
             update={'weather_response': weather_response_str},
-            goto=[Send('equipment', payload), Send('labor_cost', payload)],
+            goto=[Send(a, payload) for a in targets],
         )
 
     except KmaApiError as e:

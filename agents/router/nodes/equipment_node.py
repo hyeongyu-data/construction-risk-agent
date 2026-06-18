@@ -9,7 +9,7 @@ import sys
 import json
 import re
 import importlib.util
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -112,6 +112,27 @@ def _default_result(*, status="ERROR", summary="장비 에이전트 처리 중 �
     }
 
 
+def _filter_own_domain(data: dict, own_category: str) -> dict:
+    """cost_items에서 자기 도메인(또는 카테고리 미지정) 항목만 남기고 total_cost를 재계산한다.
+    LLM이 타 도메인(자재/인건비 등) 비용을 섞어 넣어 중복 합산되는 것을 막는 결정론적 가드."""
+    items = data.get("cost_items") or []
+    kept, dropped = [], 0
+    for it in items:
+        cat = str((it or {}).get("category", "") or "").strip().lower()
+        if cat in ("", own_category):
+            kept.append(it)
+        else:
+            dropped += 1
+    if dropped:
+        data["cost_items"] = kept
+        data.setdefault("warnings", []).append(
+            f"다른 도메인 비용 {dropped}건을 제거했습니다(이 에이전트는 {own_category} 항목만 산정)."
+        )
+        amounts = [it.get("amount") for it in kept if isinstance(it.get("amount"), (int, float))]
+        data["total_cost"] = sum(amounts) if amounts else None
+    return data
+
+
 def _normalize_result(data: dict, raw_response: str) -> dict:
     data.setdefault("agent_name", "equipment")
     data.setdefault("domain", "장비 대기비")
@@ -154,6 +175,9 @@ def _normalize_result(data: dict, raw_response: str) -> dict:
         if item not in data["excluded_items"]:
             data["excluded_items"].append(item)
 
+    # 도메인 침범 방지: equipment 카테고리(또는 미지정) 항목만 유지하고 total_cost 재계산.
+    data = _filter_own_domain(data, "equipment")
+
     data["raw_response"] = raw_response
     return data
 
@@ -172,24 +196,114 @@ def _parse_json_response(text: str) -> dict:
                                raw_response=text)
 
 
+# ── 리뷰어(결정론적 검증 게이트) ─────────────────────────────
+# 매 호출마다 항상 1회 검증한다(성공·실패 무관). 통과면 [], 문제면 메시지 리스트.
+_MAX_REVIEW_RETRIES = 1
+
+
+def _amount_mismatch(item: dict) -> bool:
+    """장비 항목 산식(amount ≈ unit_price × rate × quantity) 정합성 검사. 환각/오계산 탐지."""
+    up, amt = item.get("unit_price"), item.get("amount")
+    if not (isinstance(up, (int, float)) and isinstance(amt, (int, float))):
+        return False
+    qty = item.get("quantity")
+    qty = qty if isinstance(qty, (int, float)) else 1
+    rate = item.get("rate")
+    rate = rate if isinstance(rate, (int, float)) else 1
+    expected = up * rate * qty
+    return abs(amt - expected) > max(1.0, abs(expected) * 0.01)
+
+
+def _review_equipment(structured: dict) -> list:
+    problems = []
+    status = structured.get("status")
+
+    if status == "ERROR":
+        problems.append(
+            "JSON 형식으로 응답하지 않았거나 파싱에 실패했습니다. 지정된 JSON 스키마만 출력하세요."
+        )
+        return problems
+
+    if status in ("CALCULATED", "PARTIAL"):
+        items = structured.get("cost_items") or []
+        if not items:
+            problems.append("status가 CALCULATED/PARTIAL인데 cost_items가 비어 있습니다.")
+
+        total = structured.get("total_cost")
+        item_sum = sum(it.get("amount") for it in items if isinstance(it.get("amount"), (int, float)))
+        if items and isinstance(total, (int, float)) and int(total) != int(item_sum):
+            problems.append(
+                f"total_cost({int(total):,})가 cost_items 합계({int(item_sum):,})와 일치하지 않습니다."
+            )
+
+        for it in items:
+            for k in ("quantity", "unit_price", "amount"):
+                v = it.get(k)
+                if isinstance(v, (int, float)) and v < 0:
+                    problems.append(f"{k} 값이 음수입니다({v}).")
+            if _amount_mismatch(it):
+                problems.append(
+                    f"항목 '{it.get('name', '?')}'의 amount가 단가×인정률×수량과 일치하지 않습니다"
+                    f"(환각·오계산 의심). calculate_standby_cost 결과로 다시 계산하세요."
+                )
+
+        # 단가 DB 근거 검사: 단가가 있는데 equipment_db 근거가 없으면 DB 미조회로 간주.
+        ev = structured.get("evidence") or []
+        has_db = any(
+            isinstance(e, dict) and str(e.get("type", "")).strip().lower() == "equipment_db"
+            for e in ev
+        )
+        priced = any(isinstance(it.get("unit_price"), (int, float)) and it.get("unit_price") > 0 for it in items)
+        if priced and not has_db:
+            problems.append(
+                "장비 단가를 DB로 조회한 근거(evidence type=equipment_db)가 없습니다. "
+                "get_equipment_rental_rate/get_equipment_cost_range로 단가를 조회해 적용하세요."
+            )
+    return problems
+
+
+def _run_equipment_once(messages: list) -> tuple:
+    """장비 에이전트 1회 실행 → (response_text, structured_dict)."""
+    result = _equipment_cost_node({'messages': messages})
+    msgs = result.get('messages', [])
+    last_ai = next(
+        (m for m in reversed(msgs)
+         if isinstance(m, AIMessage) and not getattr(m, 'tool_calls', None)),
+        None,
+    )
+    raw_content = last_ai.content if last_ai else '[장비 에이전트 응답 없음]'
+    response = _message_content_to_text(raw_content)
+    return response, _parse_json_response(response)
+
+
 # ── 노드 함수 ────────────────────────────────────────────────
 def equipment_node(state: dict) -> dict:
     log.debug('equipment_node 진입')
     print('\n[장비 에이전트] 처리 시작')
 
     try:
-        result   = _equipment_cost_node(state)
-        messages = result.get('messages', [])
+        messages = list(state['messages'])
+        response, structured = _run_equipment_once(messages)
 
-        last_ai = next(
-            (m for m in reversed(messages)
-             if isinstance(m, AIMessage) and not getattr(m, 'tool_calls', None)),
-            None,
-        )
-
-        raw_content = last_ai.content if last_ai else '[장비 에이전트 응답 없음]'
-        response    = _message_content_to_text(raw_content)
-        structured  = _parse_json_response(response)
+        # 항상 1회 리뷰. 문제가 있으면 피드백 붙여 재시도(최대 _MAX_REVIEW_RETRIES회).
+        for attempt in range(1, _MAX_REVIEW_RETRIES + 1):
+            problems = _review_equipment(structured)
+            if not problems:
+                break
+            log.warning(f'[리뷰어] 장비 검증 실패(시도 {attempt}): {problems}')
+            print(f'[장비 에이전트] 검증 실패 → 재시도 {attempt}/{_MAX_REVIEW_RETRIES}')
+            feedback_msg = HumanMessage(content=(
+                '[검토 피드백] 직전 응답에 다음 문제가 있습니다. 반드시 고쳐서 '
+                '지정된 JSON 스키마로만 다시 답하세요:\n- ' + '\n- '.join(problems)
+            ))
+            messages = messages + [feedback_msg]
+            response, structured = _run_equipment_once(messages)
+        else:
+            remaining = _review_equipment(structured)
+            if remaining:
+                structured.setdefault('warnings', []).append(
+                    '자동 검토 재시도 후에도 일부 문제가 남아 있습니다: ' + '; '.join(remaining)
+                )
 
         log.debug('equipment_node 종료')
         print('[장비 에이전트] 완료')

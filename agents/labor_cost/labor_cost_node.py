@@ -65,8 +65,15 @@ SYSTEM_PROMPT = SystemMessage(content="""
 5. calculate_workers로 직종별 투입 인부수를 계산한다.
 6. calculate_labor_cost로 직종별 인건비를 계산한다.
 
-[정보 부족 처리 원칙]
-- 사용자가 수량(ton, ㎥, ㎡ 등)을 명시하지 않은 경우, 툴 호출 없이 status "MISSING_INFO"로 응답하고 missing_fields에 "수량"을 포함한다.
+[정보 부족·되묻기 처리 원칙]
+- 확인이 필요하거나 정보가 부족하면 되물어도 된다. 단, 절대 산문이나 "[시나리오 A]/[B] 중 선택하세요" 같은
+  선택지·평문 질문으로 응답하지 말 것. 반드시 아래 JSON 스키마 안에서 status="MISSING_INFO"로 표현한다.
+  - missing_fields: 받아야 할 항목(예: "수량", "투입 인원 확정")을 배열로 나열
+  - warnings: 사용자가 답해야 할 질문을 자연어로 한 문장씩 담는다. 이 질문은 후속 단계에서 사용자에게 그대로 표면화된다.
+  → JSON 밖 텍스트·질문은 출력하지 않는다.
+- 사용자가 투입 인원·일수를 직접 명시했으면(예: "콘크리트공 4명·보통인부 3명 2일") 그 값으로 바로 계산한다.
+  표준품셈 환산 인부수와 다르더라도 사용자 명시값을 우선하고, 차이는 warnings에 한 줄로 적는다.
+- 사용자가 수량(ton, ㎥, ㎡ 등)·투입 인원을 둘 다 명시하지 않은 경우에만 툴 호출 없이 status "MISSING_INFO"로 응답하고 missing_fields에 부족 항목을 담는다.
 - 표준품셈 항목을 찾지 못한 경우 유사 기준으로 계산하지 말고 status "MISSING_INFO"로 응답한다.
 
 [조건 미기재 처리 원칙]
@@ -77,6 +84,12 @@ SYSTEM_PROMPT = SystemMessage(content="""
 - 수량 단위(ton, ㎡, ㎥ 등)를 인부수로 직접 사용하지 않는다.
 - 반드시 표준품셈의 단위 품량을 곱해 인부수를 계산한다.
 - 올바른 계산: 수량 200ton × 품량 0.33인/ton = 66인
+
+[노임단가 조회 의무 — 매우 중요]
+- 노임단가(원/인일)는 반드시 get_labor_price 툴로 조회한 값만 사용한다.
+- 사용자가 투입 인원·일수를 직접 명시했더라도, 단가는 절대 기억·추측으로 채우지 말고 get_labor_price를 호출해 조회한다.
+- 각 직종 cost_items의 unit_price는 그 직종의 get_labor_price 결과와 일치해야 하며, 근거를 evidence에 type="labor_db"로 반드시 포함한다.
+- 툴로 단가를 조회하지 못하면 임의 단가를 쓰지 말고 status="MISSING_INFO"로 응답한다.
 
 [직종명 매칭 원칙]
 - 노임단가 조회 시 표준품셈에 명시된 직종명을 그대로 사용한다.
@@ -129,6 +142,10 @@ JSON 외의 설명 문장은 출력하지 않는다.
 - total_cost는 계산 가능한 경우 숫자, 불가 시 null로 작성한다.
 - missing_fields, assumptions, excluded_items, warnings, evidence는 항상 배열로 작성한다.
 - excluded_items에 "장비비", "자재비", "이윤", "부가세", "도심지 할증"을 포함한다.
+- cost_items에는 category가 "labor"인 인건비 항목만 넣는다.
+  자재비·장비비·기상 등 다른 도메인 비용은 cost_items·total_cost에 절대 포함하지 않는다(중복 합산 금지).
+  total_cost는 인건비 항목 합계만 의미한다. domain은 항상 "인건비"로 고정한다.
+- 직전 대화에 다른 에이전트의 통합 리포트가 있어도 그것을 베끼지 말고, 인건비만 새로 산정한다.
 """)
 
 def _blocked_labor_cost_response(reason: str) -> str:
