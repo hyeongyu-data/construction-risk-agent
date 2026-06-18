@@ -22,6 +22,7 @@ sys.path.insert(0, _here)                        # tools.py (같은 폴더)
 sys.path.append(_project_root)                   # common 모듈 + rag 패키지
 from common.security import check_injection, BLOCKED_RESPONSE
 
+import json
 import importlib.util
 
 # 주의: `import tools`는 agents/labor_cost/tools.py 등 동일한 이름의 모듈과
@@ -187,6 +188,23 @@ JSON 외의 설명 문장은 출력하지 않는다.
 - excluded_items에 "인건비", "자재비", "이윤", "부가세"를 포함한다.
 """)
 
+def _blocked_equipment_response(reason: str) -> str:
+    return json.dumps({
+        "agent_name": "equipment",
+        "domain": "장비 대기비",
+        "is_relevant": False,
+        "status": "ERROR",
+        "summary": f"보안 정책에 의해 요청이 차단되었습니다: {reason}",
+        "cost_items": [],
+        "total_cost": None,
+        "missing_fields": [],
+        "assumptions": [],
+        "excluded_items": [],
+        "warnings": [f"프롬프트 인젝션 차단: {reason}"],
+        "evidence": [],
+    }, ensure_ascii=False)
+
+
 # 인건비 노드는 bind_tools 단일 호출이지만, 장비는 다단계 툴 호출(공종 조회 →
 # 규격 조회 → 비용 계산 → 합산)이 필수라 ReAct 루프로 툴을 실제 실행한다.
 _agent = create_react_agent(llm, equipment_cost_tools, prompt=SYSTEM_PROMPT)
@@ -200,7 +218,7 @@ def equipment_cost_node(state: MessagesState):
     if last_human:
         is_blocked, reason = check_injection(last_human.content)
         if is_blocked:
-            return {'messages': [AIMessage(content=BLOCKED_RESPONSE)]}
+            return {'messages': [AIMessage(content=_blocked_equipment_response(reason))]}
 
     result = _agent.invoke({'messages': state['messages']})
     return {'messages': result['messages']}
