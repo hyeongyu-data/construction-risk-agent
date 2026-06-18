@@ -108,6 +108,29 @@ def _default_result(*, status='ERROR', summary='자재 에이전트 처리 중 �
     }
 
 
+def _filter_own_domain(data: dict, own_category: str = 'material') -> dict:
+    """자재 외 도메인(인건비/장비비 등) cost_items를 제거해 도메인 침범을 막는다.
+
+    category가 비었거나 own_category인 항목만 남기고, 제거가 있으면 total_cost를 재계산한다.
+    """
+    items = data.get('cost_items') or []
+    kept, dropped = [], 0
+    for it in items:
+        cat = str((it or {}).get('category', '') or '').strip().lower()
+        if cat in ('', own_category):
+            kept.append(it)
+        else:
+            dropped += 1
+    if dropped:
+        data['cost_items'] = kept
+        data.setdefault('warnings', []).append(
+            f'자재 도메인이 아닌 비용 항목 {dropped}건을 제거했습니다(인건비·장비비 등은 해당 에이전트가 산정).'
+        )
+        amounts = [it.get('amount') for it in kept if isinstance(it.get('amount'), (int, float))]
+        data['total_cost'] = sum(amounts) if amounts else None
+    return data
+
+
 def _normalize_result(data: dict, raw_response: str) -> dict:
     data.setdefault('agent_name', 'material')
     data.setdefault('domain', '자재비')
@@ -146,6 +169,7 @@ def _normalize_result(data: dict, raw_response: str) -> dict:
         if item not in data['excluded_items']:
             data['excluded_items'].append(item)
 
+    data = _filter_own_domain(data, 'material')
     data['raw_response'] = raw_response
     data = _validate_cost_items(data)
     return data
@@ -230,6 +254,20 @@ def _review_material(structured: dict) -> list:
                 v = it.get(k)
                 if isinstance(v, (int, float)) and v < 0:
                     problems.append(f'{k} 값이 음수입니다({v}). 양수로 정정하세요.')
+
+            # 산식 정합성(환각 탐지): amount ≈ 수량 × 단가 인지 확인.
+            # 자릿수 누락/추가(예: 10배) 같은 환각을 잡는다.
+            qty = it.get('quantity')
+            up = it.get('unit_price')
+            amt = it.get('amount')
+            if all(isinstance(x, (int, float)) for x in (qty, up, amt)) and qty > 0 and up > 0:
+                expected = qty * up
+                if expected > 0 and abs(amt - expected) > max(1.0, expected * 0.01):
+                    name = it.get('name') or it.get('item') or '항목'
+                    problems.append(
+                        f'{name}의 amount({amt:,.0f})가 수량 × 단가({qty:g} × {up:,.0f} = {expected:,.0f})와 '
+                        f'맞지 않습니다. 자릿수를 확인하고 amount=수량×단가로 다시 계산하세요.'
+                    )
 
     return problems
 
