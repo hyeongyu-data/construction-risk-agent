@@ -4,6 +4,9 @@ import { Message, AgentType } from '../types';
 import { sendConvMessage, renameConversation } from '../api';
 import './ChatArea.css';
 
+const NEAR_BOTTOM_PX = 120;
+const SHOW_SCROLL_BUTTON_PX = 160;
+
 interface Props {
   convId: string | null;
   canWrite: boolean;
@@ -185,51 +188,80 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
   const [loading, setLoading]             = useState(false);
   const [thinkSecs, setThinkSecs]         = useState(0);
   const [lastThinkSecs, setLastThinkSecs] = useState<number | null>(null);
+  const [isNearBottom, setIsNearBottom]   = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const bottomRef      = useRef<HTMLDivElement>(null);
-  const messagesRef    = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef       = useRef<AbortController | null>(null);
-  const isAtBottomRef  = useRef(true);
+  const thinkSecsRef = useRef(0);
+  const isNearBottomRef = useRef(true);
+  const forceScrollNextRef = useRef(false);
+  const pendingInitialScrollRef = useRef(true);
   const isEmpty     = messages.length === 0 && !loading;
+
+  const updateScrollState = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const nextIsNearBottom = distanceFromBottom < NEAR_BOTTOM_PX;
+    isNearBottomRef.current = nextIsNearBottom;
+    setIsNearBottom(nextIsNearBottom);
+    setShowScrollBtn(distanceFromBottom > SHOW_SCROLL_BUTTON_PX);
+  }, []);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    isNearBottomRef.current = true;
+    setIsNearBottom(true);
+    setShowScrollBtn(false);
+    bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
+  }, []);
 
   useEffect(() => {
     setInput('');
     setLastThinkSecs(null);
+    setIsNearBottom(true);
     setShowScrollBtn(false);
-    isAtBottomRef.current = true;
+    isNearBottomRef.current = true;
+    pendingInitialScrollRef.current = true;
+    forceScrollNextRef.current = true;
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   }, [convId]);
 
   useEffect(() => {
-    if (isAtBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+    if (pendingInitialScrollRef.current) {
+      pendingInitialScrollRef.current = false;
+      requestAnimationFrame(() => scrollToBottom('auto'));
+      return;
+    }
+
+    if (forceScrollNextRef.current || isNearBottomRef.current) {
+      forceScrollNextRef.current = false;
+      requestAnimationFrame(() => scrollToBottom('smooth'));
+      return;
+    }
+
+    updateScrollState();
+  }, [messages.length, loading, scrollToBottom, updateScrollState]);
 
   useEffect(() => {
     if (loading) {
+      thinkSecsRef.current = 0;
       setThinkSecs(0);
-      timerRef.current = setInterval(() => setThinkSecs(s => s + 1), 1000);
+      timerRef.current = setInterval(() => {
+        setThinkSecs(s => {
+          const next = s + 1;
+          thinkSecsRef.current = next;
+          return next;
+        });
+      }, 1000);
     } else {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-      if (thinkSecs > 0) setLastThinkSecs(thinkSecs);
+      if (thinkSecsRef.current > 0) setLastThinkSecs(thinkSecsRef.current);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [loading]);
-
-  const handleScroll = () => {
-    const el = messagesRef.current;
-    if (!el) return;
-    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    isAtBottomRef.current = dist < 80;
-    setShowScrollBtn(dist > 80);
-  };
-
-  const scrollToBottom = () => {
-    isAtBottomRef.current = true;
-    setShowScrollBtn(false);
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
 
   const makeOptimisticMsg = (role: 'user' | 'assistant', content: string, targetConvId: string): Message => ({
     id: uuidv4(),
@@ -288,6 +320,7 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
     }
 
     const optimistic: Message[] = [...messages, makeOptimisticMsg('user', text, targetId)];
+    forceScrollNextRef.current = true;
     onMessagesUpdate(optimistic);
     await callAgent(text, optimistic, targetId);
   };
@@ -302,6 +335,7 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
     }
 
     const optimistic: Message[] = [...messages, makeOptimisticMsg('user', text, targetId)];
+    forceScrollNextRef.current = true;
     onMessagesUpdate(optimistic);
     await callAgent(text, optimistic, targetId);
   };
@@ -401,7 +435,7 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
   return (
     <main className="chat-area">
       <div className="messages-wrap">
-        <div className="messages" ref={messagesRef} onScroll={handleScroll}>
+        <div className="messages" ref={messagesContainerRef} onScroll={updateScrollState}>
           {messages.map((msg, i) => (
             <div key={i} className={`message ${msg.role}`}>
               {msg.role === 'user' ? (
@@ -462,8 +496,8 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
           <div ref={bottomRef}/>
         </div>
 
-        {showScrollBtn && (
-          <button className="scroll-bottom-btn" onClick={scrollToBottom} title="최신 메시지로">
+        {showScrollBtn && !isNearBottom && (
+          <button className="scroll-bottom-btn" onClick={() => scrollToBottom('smooth')} title="최신 대화로 이동">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="6 9 12 15 18 9"/>
             </svg>
