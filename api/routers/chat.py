@@ -11,6 +11,7 @@ from api.database import get_db_cursor, dict_from_row
 from api.models import ChatRequest, Message
 
 router = APIRouter(tags=["chat"])
+CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT", "20"))
 
 # Graph 임포트 (라우터 담당자가 제공)
 # TODO: 라우터 팀에서 graph 객체를 제공받으면 여기에 import
@@ -60,10 +61,16 @@ def chat(conv_id: str, req: ChatRequest):
 
         # 2. 메시지 히스토리 조회
         cursor.execute("""
-            SELECT role, content FROM messages
-            WHERE conversation_id = %s
-            ORDER BY created_at ASC
-        """, (conv_id,))
+            SELECT role, content
+            FROM (
+                SELECT id, role, content, created_at
+                FROM messages
+                WHERE conversation_id = %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT %s
+            ) recent_messages
+            ORDER BY created_at ASC, id ASC
+        """, (conv_id, CHAT_HISTORY_LIMIT))
         msg_rows = cursor.fetchall()
 
         # 3. LangChain 메시지로 변환
@@ -72,8 +79,10 @@ def chat(conv_id: str, req: ChatRequest):
             msg_dict = dict_from_row(msg_row)
             if msg_dict["role"] == "user":
                 lc_messages.append(HumanMessage(content=msg_dict["content"]))
-            else:
+            elif msg_dict["role"] == "assistant":
                 lc_messages.append(AIMessage(content=msg_dict["content"]))
+            else:
+                print(f"[chat] Ignoring message with unknown role: {msg_dict['role']}")
 
         # 사용자 메시지 추가
         lc_messages.append(HumanMessage(content=req.content))
