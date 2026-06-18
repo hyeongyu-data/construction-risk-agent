@@ -77,7 +77,10 @@ function renderMarkdown(text: string): React.ReactNode[] {
 
 function formatTime(iso: string | undefined | null): string {
   if (!iso) return '';
-  const d = new Date(iso);
+  // 타임존 정보 없는 UTC 문자열은 'Z'를 붙여 UTC로 해석 (없으면 브라우저가 로컬 시간으로 오해석)
+  const hasTimezone = iso.endsWith('Z') || /T.*[+-]/.test(iso);
+  const normalized = hasTimezone ? iso : iso + 'Z';
+  const d = new Date(normalized);
   if (isNaN(d.getTime())) return '';
   const now = new Date();
   const isToday = d.toDateString() === now.toDateString();

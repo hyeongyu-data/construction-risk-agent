@@ -25,5 +25,11 @@ async def list_messages(conv_id: str):
             ORDER BY created_at ASC
         """, (conv_id,))
         rows = cursor.fetchall()
-        messages = [{**dict_from_row(r), "id": str(dict_from_row(r)["id"]), "conversation_id": str(dict_from_row(r)["conversation_id"])} for r in rows]
+        def to_msg(r):
+            d = dict_from_row(r)
+            created_at = d.get("created_at")
+            if created_at and hasattr(created_at, "isoformat"):
+                d["created_at"] = created_at.isoformat() + "Z"
+            return {**d, "id": str(d["id"]), "conversation_id": str(d["conversation_id"])}
+        messages = [to_msg(r) for r in rows]
         return {"messages": messages}

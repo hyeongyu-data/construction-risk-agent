@@ -98,7 +98,8 @@ def chat(conv_id: str, req: ChatRequest):
             raise HTTPException(status_code=500, detail=f"AI agent error: {str(e)}")
 
         # 5. 메시지 저장 (사용자 + AI)
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
 
         # 사용자 메시지
         user_msg_id = str(uuid.uuid4())

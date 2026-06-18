@@ -22,6 +22,22 @@ _COST_AGENTS = ("equipment", "material", "labor_cost")
 _DEFAULT_AGENTS = ["equipment", "material", "labor_cost"]   # 무관/파싱실패 시 폴백(전부)
 _WEATHER_DEFAULT_AGENTS = ["equipment", "labor_cost"]       # 기상 지연 → 장비·인력 대기
 
+_MATERIAL_LOOKUP_TERMS = (
+    "조달청", "가격정보", "단가", "가격", "자재", "시세", "공시",
+    "콘크리트", "레미콘", "시멘트", "철근", "파일", "블록",
+)
+_MATERIAL_LOOKUP_INTENTS = (
+    "조회", "검색", "찾", "알려", "볼 수", "볼수", "가능", "할 수", "할수",
+)
+
+
+def _looks_like_material_lookup(query: str) -> bool:
+    """Route procurement/material price lookup questions to the material agent."""
+    q = query.lower()
+    has_material_term = any(term.lower() in q for term in _MATERIAL_LOOKUP_TERMS)
+    has_lookup_intent = any(intent.lower() in q for intent in _MATERIAL_LOOKUP_INTENTS)
+    return has_material_term and has_lookup_intent
+
 
 def classify_question(query: str) -> dict:
     """질문을 분석해 실행 계획을 반환한다.
@@ -34,6 +50,13 @@ def classify_question(query: str) -> dict:
         }
     """
     log.debug(f"classify_question 호출 — query={query!r}")
+    if _looks_like_material_lookup(query):
+        return {
+            "needs_weather": False,
+            "agents": ["material"],
+            "reason": "자재 가격 또는 조달청 단가 조회 의도",
+        }
+
     prompt = f"""다음 건설 현장 질문을 분석해 실행 계획을 JSON으로 반환하세요.
 
 [비용 도메인] — 질문에 실제로 관련된 것만 고른다.
