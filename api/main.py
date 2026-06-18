@@ -9,7 +9,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import health, projects, conversations, messages, chat
+from api.routers import health, auth, projects, conversations, messages, chat
 
 app = FastAPI(
     title="Construction Risk Agent API",
@@ -28,6 +28,7 @@ app.add_middleware(
 
 # 라우터 등록
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(conversations.router)
 app.include_router(messages.router)

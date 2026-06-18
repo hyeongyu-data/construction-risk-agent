@@ -71,3 +71,25 @@ class ChatResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+
+
+# ── Auth ───────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class UserResponse(BaseModel):
+    user_id: str
+    name: str
+    email: str
+    role: str
+
+
+class AuthResponse(BaseModel):
+    user_id: str
+    name: str
+    email: str
+    role: str
+    token: str
