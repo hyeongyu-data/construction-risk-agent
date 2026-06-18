@@ -9,6 +9,13 @@ from datetime import datetime
 
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1)
+    site_name: Optional[str] = None
+    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    work_type: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     description: Optional[str] = None
 
 
