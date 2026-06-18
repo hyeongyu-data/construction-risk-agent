@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { Message, AgentType } from '../types';
 import { sendConvMessage, renameConversation } from '../api';
 import './ChatArea.css';
 
 interface Props {
   convId: string | null;
+  canWrite: boolean;
   messages: Message[];
   onMessagesUpdate: (messages: Message[]) => void;
   onNeedConv: () => Promise<string>;
@@ -17,6 +19,8 @@ const AGENT_META: Record<AgentType, { label: string; color: string }> = {
   labor:     { label: '인건비 에이전트', color: '#16a34a' },
   equipment: { label: '장비 에이전트',  color: '#d97706' },
   material:  { label: '자재 에이전트',  color: '#7c3aed' },
+  synthesize: { label: '종합 분석',     color: '#0891b2' },
+  router:    { label: '라우터',         color: '#64748b' },
 };
 
 // ── Markdown 렌더러 ────────────────────────────
@@ -69,6 +73,15 @@ function renderMarkdown(text: string): React.ReactNode[] {
     i++;
   }
   return result;
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (isToday) return time;
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${time}`;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -162,23 +175,31 @@ const AGENT_CARDS = [
 ];
 
 // ── 메인 컴포넌트 ──────────────────────────────
-export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedConv, onConvCreated }: Props) {
+export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate, onNeedConv, onConvCreated }: Props) {
   const [input, setInput]                 = useState('');
   const [loading, setLoading]             = useState(false);
   const [thinkSecs, setThinkSecs]         = useState(0);
   const [lastThinkSecs, setLastThinkSecs] = useState<number | null>(null);
-  const bottomRef   = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const bottomRef      = useRef<HTMLDivElement>(null);
+  const messagesRef    = useRef<HTMLDivElement>(null);
+  const textareaRef    = useRef<HTMLTextAreaElement>(null);
+  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef       = useRef<AbortController | null>(null);
+  const isAtBottomRef  = useRef(true);
   const isEmpty     = messages.length === 0 && !loading;
 
   useEffect(() => {
     setInput('');
     setLastThinkSecs(null);
+    setShowScrollBtn(false);
+    isAtBottomRef.current = true;
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   }, [convId]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
+  useEffect(() => {
+    if (isAtBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
 
   useEffect(() => {
     if (loading) {
@@ -191,22 +212,63 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [loading]);
 
+  const handleScroll = () => {
+    const el = messagesRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isAtBottomRef.current = dist < 80;
+    setShowScrollBtn(dist > 80);
+  };
+
+  const scrollToBottom = () => {
+    isAtBottomRef.current = true;
+    setShowScrollBtn(false);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const makeOptimisticMsg = (role: 'user' | 'assistant', content: string, targetConvId: string): Message => ({
+    id: uuidv4(),
+    conversation_id: targetConvId,
+    role,
+    content,
+    agent: null,
+    created_at: new Date().toISOString(),
+  });
+
   const callAgent = useCallback(async (userContent: string, optimisticMessages: Message[], targetConvId: string) => {
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     try {
-      const reply = await sendConvMessage(targetConvId, userContent);
-      const next = [...optimisticMessages, reply];
-      onMessagesUpdate(next);
+      const reply = await sendConvMessage(targetConvId, userContent, ctrl.signal);
+      onMessagesUpdate([...optimisticMessages, reply]);
       if (optimisticMessages.length === 1) {
         const title = userContent.slice(0, 30) + (userContent.length > 30 ? '...' : '');
         renameConversation(targetConvId, title).catch(() => {});
       }
-    } catch {
-      onMessagesUpdate([...optimisticMessages, { role: 'assistant', content: '오류가 발생했습니다. 서버를 확인해주세요.' }]);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        // 사용자가 중단함 — 낙관적 메시지만 남기고 에러 표시 안 함
+      } else {
+        const errMsg = makeOptimisticMsg('assistant', '오류가 발생했습니다. 서버를 확인해주세요.', targetConvId);
+        onMessagesUpdate([...optimisticMessages, errMsg]);
+      }
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
   }, [onMessagesUpdate]);
+
+  const handleRegenerate = useCallback(async () => {
+    if (loading || !convId) return;
+    const lastAIdx = messages.map(m => m.role).lastIndexOf('assistant');
+    if (lastAIdx < 0) return;
+    const lastUserMsg = messages.slice(0, lastAIdx).reverse().find(m => m.role === 'user');
+    if (!lastUserMsg) return;
+    const trimmed = messages.slice(0, lastAIdx);
+    onMessagesUpdate(trimmed);
+    await callAgent(lastUserMsg.content, trimmed, convId);
+  }, [loading, convId, messages, callAgent, onMessagesUpdate]);
 
   const handleSubmit = async () => {
     const text = input.trim();
@@ -220,13 +282,13 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
       onConvCreated(targetId);
     }
 
-    const optimistic: Message[] = [...messages, { role: 'user', content: text }];
+    const optimistic: Message[] = [...messages, makeOptimisticMsg('user', text, targetId)];
     onMessagesUpdate(optimistic);
     await callAgent(text, optimistic, targetId);
   };
 
   const handleExampleClick = async (text: string) => {
-    if (loading) return;
+    if (loading || !canWrite) return;
 
     let targetId = convId;
     if (!targetId) {
@@ -234,7 +296,7 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
       onConvCreated(targetId);
     }
 
-    const optimistic: Message[] = [...messages, { role: 'user', content: text }];
+    const optimistic: Message[] = [...messages, makeOptimisticMsg('user', text, targetId)];
     onMessagesUpdate(optimistic);
     await callAgent(text, optimistic, targetId);
   };
@@ -248,7 +310,7 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
     if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px'; }
   };
 
-  const inputBox = (
+  const inputBox = canWrite ? (
     <div className="input-box">
       <textarea
         ref={textareaRef}
@@ -265,6 +327,14 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
           <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
         </svg>
       </button>
+    </div>
+  ) : (
+    <div className="readonly-notice">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      이 대화는 읽기 전용입니다. 대화 작성자만 메시지를 보낼 수 있습니다.
     </div>
   );
 
@@ -310,51 +380,75 @@ export default function ChatArea({ convId, messages, onMessagesUpdate, onNeedCon
 
   return (
     <main className="chat-area">
-      <div className="messages">
-        {messages.map((msg, i) => (
-          <div key={i} className={`message ${msg.role}`}>
-            {msg.role === 'user' ? (
-              <div className="user-bubble">{msg.content}</div>
-            ) : (
-              <div className="assistant-body">
-                {msg.agent && (
-                  <div
-                    className="agent-badge"
-                    style={{ color: AGENT_META[msg.agent].color }}
-                  >
-                    <span
-                      className="agent-badge-dot"
-                      style={{ background: AGENT_META[msg.agent].color }}
-                    />
-                    {AGENT_META[msg.agent].label}
+      <div className="messages-wrap">
+        <div className="messages" ref={messagesRef} onScroll={handleScroll}>
+          {messages.map((msg, i) => (
+            <div key={i} className={`message ${msg.role}`}>
+              {msg.role === 'user' ? (
+                <div className="user-msg-wrap">
+                  <div className="user-bubble">{msg.content}</div>
+                  <span className="msg-time user-time">{formatTime(msg.created_at)}</span>
+                </div>
+              ) : (
+                <div className="assistant-body">
+                  {msg.agent && (
+                    <div className="agent-badge" style={{ color: AGENT_META[msg.agent].color }}>
+                      <span className="agent-badge-dot" style={{ background: AGENT_META[msg.agent].color }}/>
+                      {AGENT_META[msg.agent].label}
+                    </div>
+                  )}
+                  {i === lastAssistantIdx && lastThinkSecs !== null && (
+                    <div className="think-label">{lastThinkSecs}초 동안 생각함</div>
+                  )}
+                  <div className="assistant-text">{renderMarkdown(msg.content)}</div>
+                  <div className="action-bar">
+                    <CopyButton text={msg.content}/>
+                    {i === lastAssistantIdx && !loading && canWrite && (
+                      <button className="action-btn" onClick={handleRegenerate} title="재생성">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="1 4 1 10 7 10"/>
+                          <path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+                        </svg>
+                      </button>
+                    )}
+                    <span className="msg-time">{formatTime(msg.created_at)}</span>
                   </div>
-                )}
-                {i === lastAssistantIdx && lastThinkSecs !== null && (
-                  <div className="think-label">{lastThinkSecs}초 동안 생각함</div>
-                )}
-                <div className="assistant-text">{renderMarkdown(msg.content)}</div>
-                <div className="action-bar"><CopyButton text={msg.content}/></div>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {loading && (
-          <div className="message assistant">
-            <div className="loading-indicator">
-              <svg width="26" height="20" viewBox="0 0 40 30" fill="none">
-                <rect className="brick b1" x="0"  y="22" width="11" height="7" rx="1.5" fill="#3a7d44"/>
-                <rect className="brick b2" x="13" y="22" width="11" height="7" rx="1.5" fill="#3a7d44"/>
-                <rect className="brick b3" x="26" y="22" width="11" height="7" rx="1.5" fill="#3a7d44"/>
-                <rect className="brick b4" x="6"  y="14" width="11" height="7" rx="1.5" fill="#2e6436"/>
-                <rect className="brick b5" x="20" y="14" width="11" height="7" rx="1.5" fill="#2e6436"/>
-                <rect className="brick b6" x="13" y="6"  width="11" height="7" rx="1.5" fill="#14532d"/>
-              </svg>
-              <span className="think-label animate">{thinkSecs}초 동안 생각 중...</span>
+                </div>
+              )}
             </div>
-          </div>
+          ))}
+
+          {loading && (
+            <div className="message assistant">
+              <div className="loading-indicator">
+                <svg width="26" height="20" viewBox="0 0 40 30" fill="none">
+                  <rect className="brick b1" x="0"  y="22" width="11" height="7" rx="1.5" fill="#3a7d44"/>
+                  <rect className="brick b2" x="13" y="22" width="11" height="7" rx="1.5" fill="#3a7d44"/>
+                  <rect className="brick b3" x="26" y="22" width="11" height="7" rx="1.5" fill="#3a7d44"/>
+                  <rect className="brick b4" x="6"  y="14" width="11" height="7" rx="1.5" fill="#2e6436"/>
+                  <rect className="brick b5" x="20" y="14" width="11" height="7" rx="1.5" fill="#2e6436"/>
+                  <rect className="brick b6" x="13" y="6"  width="11" height="7" rx="1.5" fill="#14532d"/>
+                </svg>
+                <span className="think-label animate">{thinkSecs}초 동안 생각 중...</span>
+                <button className="stop-btn" onClick={() => abortRef.current?.abort()} title="생성 중단">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  </svg>
+                  중단
+                </button>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef}/>
+        </div>
+
+        {showScrollBtn && (
+          <button className="scroll-bottom-btn" onClick={scrollToBottom} title="최신 메시지로">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
         )}
-        <div ref={bottomRef}/>
       </div>
       <div className="input-area">{inputBox}</div>
     </main>
