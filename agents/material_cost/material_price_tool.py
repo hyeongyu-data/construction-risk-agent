@@ -20,7 +20,7 @@ load_dotenv(BASE_DIR / ".env")
 # ── DB 접속 정보 ──────────────────────────────────────────────────
 DB_HOST     = os.getenv("DB_HOST", "localhost")
 DB_PORT     = os.getenv("DB_PORT", "5432")
-DB_NAME     = os.getenv("DB_NAME", "material_cost")
+DB_NAME     = os.getenv("DB_NAME", "construction_risk")
 DB_USER     = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
@@ -105,27 +105,7 @@ def search_material_price(material_name: str) -> str:
                 indent=2,
             )
 
-        # 계약단가 조회 (contract DB가 있을 때)
-        contract_map = {}
-        try:
-            contract_conn = psycopg2.connect(
-                host=DB_HOST, port=DB_PORT,
-                dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD,
-                cursor_factory=psycopg2.extras.RealDictCursor,
-            )
-            cc = contract_conn.cursor()
-            for row in rows:
-                cc.execute(
-                    "SELECT 계약단가, 계약유형 FROM contract_prices WHERE 자재명 LIKE %s LIMIT 1",
-                    (f"%{row['자재명'][:5]}%",),
-                )
-                r = cc.fetchone()
-                if r:
-                    contract_map[row["자재명"]] = dict(r)
-            contract_conn.close()
-        except Exception:
-            pass  # contract_prices 테이블 없으면 무시
-
+        # 계약단가는 search_contract_price 툴(rag.company_docs)이 별도 담당
         items = []
         for row in rows:
             item = {
@@ -138,13 +118,6 @@ def search_material_price(material_name: str) -> str:
                 "시황성자재": bool(row.get("시황성자재", False)),
                 "부가세여부": row.get("부가세여부", "부가가치세별도"),
             }
-            if row["자재명"] in contract_map:
-                item["계약단가_원"] = contract_map[row["자재명"]]["계약단가"]
-                item["계약유형"] = contract_map[row["자재명"]]["계약유형"]
-            else:
-                item["계약단가_원"] = None
-                item["계약유형"] = "계약 DB 미연동 (팀원 B 샘플 DB 필요)"
-
             items.append(item)
 
         return json.dumps(

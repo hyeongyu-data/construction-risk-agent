@@ -20,7 +20,7 @@ _here = os.path.dirname(os.path.abspath(__file__))
 _project_root = os.path.abspath(os.path.join(_here, '..', '..'))
 sys.path.insert(0, _here)                        # tools.py (같은 폴더)
 sys.path.append(_project_root)                   # common 모듈 + rag 패키지
-from common.security import check_injection, BLOCKED_RESPONSE
+from common.security import check_injection, BLOCKED_RESPONSE, block_reason_ko
 
 import json
 import importlib.util
@@ -200,7 +200,7 @@ def _blocked_equipment_response(reason: str) -> str:
         "missing_fields": [],
         "assumptions": [],
         "excluded_items": [],
-        "warnings": [f"프롬프트 인젝션 차단: {reason}"],
+        "warnings": [block_reason_ko(reason)],
         "evidence": [],
     }, ensure_ascii=False)
 

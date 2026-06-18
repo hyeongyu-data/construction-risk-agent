@@ -1,4 +1,5 @@
 import { Project, Conversation, Message } from './types';
+import { MOCK_MODE, mockSendMessage } from './mockData';
 
 const BASE = '';
 
@@ -64,6 +65,7 @@ export async function createConversation(projectId: string, title = '새 대화'
 }
 
 export async function renameConversation(convId: string, title: string): Promise<void> {
+  if (MOCK_MODE) return;
   await fetch(`${BASE}/conversations/${convId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -72,6 +74,7 @@ export async function renameConversation(convId: string, title: string): Promise
 }
 
 export async function deleteConversation(convId: string): Promise<void> {
+  if (MOCK_MODE) return;
   await fetch(`${BASE}/conversations/${convId}`, { method: 'DELETE' });
 }
 
@@ -84,7 +87,10 @@ export async function fetchMessages(convId: string): Promise<Message[]> {
   return res.json();
 }
 
-export async function sendConvMessage(convId: string, content: string): Promise<string> {
+export async function sendConvMessage(convId: string, content: string): Promise<Message> {
+  if (MOCK_MODE) {
+    return mockSendMessage(convId, content);
+  }
   const res = await fetch(`${BASE}/conversations/${convId}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -92,5 +98,5 @@ export async function sendConvMessage(convId: string, content: string): Promise<
   });
   if (!res.ok) throw new Error(`sendConvMessage: ${res.status}`);
   const data = await res.json();
-  return data.content as string;
+  return { role: 'assistant', content: data.content as string };
 }

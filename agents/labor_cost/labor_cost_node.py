@@ -3,6 +3,7 @@
 - 최종 그래프에서 LaborCostAgent 노드로 등록해서 사용
 - from agents.labor_cost.labor_cost_node import labor_cost_node, labor_cost_tools
 """
+import json
 import os
 import sys
 import boto3
@@ -17,7 +18,7 @@ _here = os.path.dirname(os.path.abspath(__file__))
 _project_root = os.path.abspath(os.path.join(_here, '..', '..'))
 sys.path.insert(0, _here)
 sys.path.append(_project_root)
-from common.security import check_injection, BLOCKED_RESPONSE
+from common.security import check_injection, BLOCKED_RESPONSE, block_reason_ko
 
 import importlib.util
 
@@ -130,6 +131,23 @@ JSON 외의 설명 문장은 출력하지 않는다.
 - excluded_items에 "장비비", "자재비", "이윤", "부가세", "도심지 할증"을 포함한다.
 """)
 
+def _blocked_labor_cost_response(reason: str) -> str:
+    return json.dumps({
+        "agent_name": "labor",
+        "domain": "인건비",
+        "is_relevant": False,
+        "status": "ERROR",
+        "summary": f"보안 정책에 의해 요청이 차단되었습니다: {reason}",
+        "cost_items": [],
+        "total_cost": None,
+        "missing_fields": [],
+        "assumptions": [],
+        "excluded_items": ["장비비", "자재비", "이윤", "부가세", "도심지 할증"],
+        "warnings": [block_reason_ko(reason)],
+        "evidence": [],
+    }, ensure_ascii=False)
+
+
 _agent = create_react_agent(llm, labor_cost_tools, prompt=SYSTEM_PROMPT)
 
 
@@ -141,7 +159,7 @@ def labor_cost_node(state: MessagesState):
     if last_human:
         is_blocked, reason = check_injection(last_human.content)
         if is_blocked:
-            return {'messages': [AIMessage(content=BLOCKED_RESPONSE)]}
+            return {'messages': [AIMessage(content=_blocked_labor_cost_response(reason))]}
 
     result = _agent.invoke({'messages': state['messages']})
     return {'messages': result['messages']}
