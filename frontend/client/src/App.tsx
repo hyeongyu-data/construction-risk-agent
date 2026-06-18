@@ -101,12 +101,24 @@ export default function App() {
       );
       return;
     }
-    fetchQuickConversations().then(setQuickConvs).catch(console.error);
-    fetchProjects().then(setProjects).catch(console.error);
-  }, [user]);
+    // 로그인/새로고침 시 모든 초기 데이터를 병렬로 한 번에 로드
+    const initProjectId = activeProjectId;
+    const initConvId    = activeConvId;
+    Promise.all([
+      fetchQuickConversations().then(setQuickConvs).catch(console.error),
+      fetchProjects().then(setProjects).catch(console.error),
+      initProjectId
+        ? fetchConversations(initProjectId).then(setProjectConvs).catch(console.error)
+        : Promise.resolve(),
+      initConvId
+        ? fetchMessages(initConvId).then(setMessages).catch(console.error)
+        : Promise.resolve(),
+    ]);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 프로젝트 전환 시 대화 목록 갱신 (초기 로드 제외)
   useEffect(() => {
-    if (!activeProjectId) { setProjectConvs([]); return; }
+    if (!activeProjectId || !user) { setProjectConvs([]); return; }
     if (MOCK_MODE) {
       const uid = user?.user_id ?? '';
       setProjectConvs(
@@ -115,16 +127,17 @@ export default function App() {
       return;
     }
     fetchConversations(activeProjectId).then(setProjectConvs).catch(console.error);
-  }, [activeProjectId, user]);
+  }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 대화 전환 시 메시지 갱신 (초기 로드 제외)
   useEffect(() => {
-    if (!activeConvId) { setMessages([]); return; }
+    if (!activeConvId || !user) { setMessages([]); return; }
     if (MOCK_MODE) {
       setMessages(MOCK_MESSAGES[activeConvId] ?? []);
       return;
     }
     fetchMessages(activeConvId).then(setMessages).catch(console.error);
-  }, [activeConvId]);
+  }, [activeConvId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 대화 핸들러 ─────────────────────────────────────────────
   const handleNeedConv = useCallback(async (): Promise<string> => {
