@@ -75,8 +75,10 @@ function renderMarkdown(text: string): React.ReactNode[] {
   return result;
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string | undefined | null): string {
+  if (!iso) return '';
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
   const now = new Date();
   const isToday = d.toDateString() === now.toDateString();
   const time = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
