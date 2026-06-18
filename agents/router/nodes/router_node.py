@@ -71,19 +71,31 @@ def router_node(state: dict) -> Command:
             goto=END,
         )
 
-    result = classify_question(classify_input)
-    print(f'\n[라우터] {result["type"]} ({result["type_name"]}) — {result["reason"]}')
+    plan = classify_question(classify_input)
+    needs_weather = plan['needs_weather']
+    # 관련 비용 에이전트(플래너 결정). 비어 있으면 폴백: weather면 장비·인력, 아니면 전체.
+    agents = plan['agents'] or (['equipment', 'labor_cost'] if needs_weather else ['equipment', 'material', 'labor_cost'])
 
-    if result['type'] == 'A':
+    print(f'\n[라우터] weather={needs_weather}, agents={agents} — {plan["reason"]}')
+
+    if needs_weather:
+        # 기상 선행: weather가 지연일수를 산출한 뒤 계획된 비용 에이전트로 핸드오프.
+        update = {
+            'question_type': 'A',
+            'needs_weather': True,
+            'target_agents': agents,
+        }
         goto = 'weather'
-        goto_names = 'weather'
+        goto_names = f'weather → {agents}'
     else:
-        goto = [
-            Send('equipment', state),
-            Send('material', state),
-            Send('labor_cost', state),
-        ]
-        goto_names = 'equipment, material, labor_cost'
+        # 기상 불필요: 계획된 비용 에이전트만 병렬 실행.
+        update = {
+            'question_type': 'B',
+            'needs_weather': False,
+            'target_agents': agents,
+        }
+        goto = [Send(a, state) for a in agents]
+        goto_names = ', '.join(agents)
 
-    log.info(f"router_node 분기: {result['type']} → {goto_names}")
-    return Command(update={'question_type': result['type']}, goto=goto)
+    log.info(f"router_node 분기: weather={needs_weather} → {goto_names}")
+    return Command(update=update, goto=goto)

@@ -20,6 +20,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(_HERE, '..')))
 
 from config import MODEL_ID, SYNTHESIS_MAX_TOKENS, SYNTHESIS_TEMPERATURE
+from synthesis_examples import select_examples
 from logger import get_logger
 
 log = get_logger(__name__)
@@ -71,8 +72,30 @@ def _call_llm(prompt: str) -> str:
     return text
 
 
+def _build_few_shot(query: str, k: int = 1) -> str:
+    """질문과 유사한 모범 답변 예시를 few-shot 블록으로 구성한다."""
+    try:
+        examples = select_examples(query, k=k)
+    except Exception as e:
+        log.warning(f'few-shot 예시 선택 실패, 생략: {e}')
+        return ""
+    if not examples:
+        return ""
+    blocks = []
+    for ex in examples:
+        blocks.append(f"[예시 질문]\n{ex['question']}\n\n[예시 답변 — 형식·톤 참고용]\n{ex['answer']}")
+    joined = "\n\n".join(blocks)
+    return (
+        "[참고 예시 — 아래는 유사 질문에 대한 모범 답변입니다. "
+        "형식·구성·톤·단가 인용 방식을 참고하되, 숫자는 반드시 이번 질문의 실제 에이전트 응답값만 사용하세요. "
+        "예시의 금액을 그대로 베끼지 마세요.]\n"
+        f"{joined}\n\n"
+    )
+
+
 def _synthesis_prompt(query: str, question_type: str, responses: dict) -> str:
     sections = "\n\n".join(f"[{label} 응답]\n{text}" for label, text in responses.items())
+    few_shot = _build_few_shot(query)
 
     weather_note = ""
     if question_type == 'A' and '기상 에이전트' in responses:
@@ -88,7 +111,7 @@ def _synthesis_prompt(query: str, question_type: str, responses: dict) -> str:
 [사용자 질문]
 {query}
 
-{weather_note}{sections}
+{few_shot}{weather_note}{sections}
 
 규칙:
 - 사용자 질문과 실제로 관련된 답변만 골라 정리하세요.
