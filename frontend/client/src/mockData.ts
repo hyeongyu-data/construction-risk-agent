@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { User, UserRole, AuthResponse, Project, ProjectMember, ProjectRole, Conversation, Message } from './types';
 
-export const MOCK_MODE = true;
+export const MOCK_MODE = false;
 
 // ── Mock 사용자 ────────────────────────────────────────────────
 export const MOCK_USERS: Record<string, User & { password: string }> = {
