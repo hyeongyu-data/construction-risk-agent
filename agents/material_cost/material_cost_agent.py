@@ -7,6 +7,7 @@ Material Cost Agent (자재 단가 계산 에이전트)
 import os
 import sys
 import json
+import logging
 import boto3
 from pathlib import Path
 from dotenv import load_dotenv
@@ -29,8 +30,8 @@ _rag_tools = []
 try:
     from rag.company_docs.search import search_contract_price, list_contract_documents
     _rag_tools = [search_contract_price, list_contract_documents]
-except ImportError:
-    pass
+except Exception as e:
+    logging.warning(f"자재 계약단가 RAG 툴 로드 실패 — 조달청 단가 기준으로 계산: {e}")
 
 
 SYSTEM_PROMPT = SystemMessage(content="""
@@ -101,6 +102,8 @@ JSON 외의 설명 문장은 출력하지 않는다.
 - missing_fields, assumptions, excluded_items, warnings, evidence는 항상 배열로 작성한다.
 - excluded_items에 "인건비", "장비비", "이윤", "부가세"를 포함한다.
 - Tool 결과에 없는 단가는 절대 임의로 사용하지 않는다.
+- search_contract_price Tool이 없거나 계약단가를 찾지 못한 경우 warnings에 "계약단가 DB 미연동 또는 조회 실패"를 포함한다.
+- 계약단가를 사용하지 못한 경우 contract_unit_price는 null로 작성하고, 현재 조달청 단가 기준 금액만 계산한다.
 """)
 
 

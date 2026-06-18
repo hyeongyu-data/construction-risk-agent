@@ -147,6 +147,32 @@ def _normalize_result(data: dict, raw_response: str) -> dict:
             data['excluded_items'].append(item)
 
     data['raw_response'] = raw_response
+    data = _validate_cost_items(data)
+    return data
+
+
+def _validate_cost_items(data: dict) -> dict:
+    warnings = data.setdefault('warnings', [])
+    total_from_items = 0
+    has_amount = False
+
+    for item in data.get('cost_items', []):
+        for key in ['quantity', 'unit_price', 'amount']:
+            value = item.get(key)
+            if isinstance(value, (int, float)) and value < 0:
+                warnings.append(f'{key} 값이 음수입니다: {value}')
+
+        amount = item.get('amount')
+        if isinstance(amount, (int, float)):
+            total_from_items += amount
+            has_amount = True
+
+    if has_amount and isinstance(data.get('total_cost'), (int, float)):
+        if int(data['total_cost']) != int(total_from_items):
+            warnings.append(
+                f'total_cost({data["total_cost"]:,})와 cost_items amount 합계({total_from_items:,})가 일치하지 않습니다.'
+            )
+
     return data
 
 
