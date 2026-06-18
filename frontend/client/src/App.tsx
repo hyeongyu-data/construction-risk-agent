@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
-import { Project, Conversation, Message } from './types';
+import LoginPage from './components/LoginPage';
+import ToastContainer from './components/ToastContainer';
+import { User, Project, Conversation, Message, ProjectCreateRequest, ProjectRole } from './types';
 import {
   fetchQuickConversations, createQuickConversation,
   fetchProjects, createProject, deleteProject,
   fetchConversations, createConversation, deleteConversation,
   fetchMessages,
+  registerUnauthorizedHandler,
 } from './api';
+import { showToast } from './toast';
 import {
   MOCK_MODE,
   MOCK_PROJECTS, MOCK_QUICK_CONVS, MOCK_PROJECT_CONVS, MOCK_MESSAGES,
@@ -16,6 +20,9 @@ import {
 import './App.css';
 
 export default function App() {
+  const [user, setUser]                        = useState<User | null>(null);
+  const [authReady, setAuthReady]              = useState(false);
+
   const [quickConvs, setQuickConvs]           = useState<Conversation[]>([]);
   const [projects, setProjects]               = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -28,24 +35,73 @@ export default function App() {
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
 
+  // ── 인증 복원 (새로고침 시) ─────────────────────────────────
   useEffect(() => {
+    const storedUser  = localStorage.getItem('auth_user');
+    const storedToken = localStorage.getItem('auth_token');
+    if (storedUser && storedToken) {
+      try { setUser(JSON.parse(storedUser)); } catch {}
+    }
+    setAuthReady(true);
+  }, []);
+
+  // ── 로그인 / 로그아웃 ───────────────────────────────────────
+  const handleLogin = useCallback((u: User, token: string) => {
+    localStorage.setItem('auth_token', token);
+    localStorage.setItem('auth_user', JSON.stringify(u));
+    setUser(u);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
+    setUser(null);
+    setQuickConvs([]);
+    setProjects([]);
+    setActiveProjectId(null);
+    setProjectConvs([]);
+    setActiveConvId(null);
+    setMessages([]);
+  }, []);
+
+  // 401 발생 시 자동 로그아웃
+  useEffect(() => {
+    registerUnauthorizedHandler(() => {
+      showToast('세션이 만료됐습니다. 다시 로그인해주세요.', 'error', 4000);
+      handleLogout();
+    });
+  }, [handleLogout]);
+
+  // ── 데이터 로드 ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
     if (MOCK_MODE) {
-      setQuickConvs(MOCK_QUICK_CONVS);
-      setProjects(MOCK_PROJECTS);
+      setQuickConvs(
+        MOCK_QUICK_CONVS.map(c => ({ ...c, can_write: c.owner_id === user.user_id }))
+      );
+      setProjects(
+        MOCK_PROJECTS.map(p => ({
+          ...p,
+          my_project_role: (p.created_by === user.user_id ? 'owner' : 'member') as ProjectRole,
+        }))
+      );
       return;
     }
     fetchQuickConversations().then(setQuickConvs).catch(console.error);
     fetchProjects().then(setProjects).catch(console.error);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!activeProjectId) { setProjectConvs([]); return; }
     if (MOCK_MODE) {
-      setProjectConvs(MOCK_PROJECT_CONVS[activeProjectId] ?? []);
+      const uid = user?.user_id ?? '';
+      setProjectConvs(
+        (MOCK_PROJECT_CONVS[activeProjectId] ?? []).map(c => ({ ...c, can_write: c.owner_id === uid }))
+      );
       return;
     }
     fetchConversations(activeProjectId).then(setProjectConvs).catch(console.error);
-  }, [activeProjectId]);
+  }, [activeProjectId, user]);
 
   useEffect(() => {
     if (!activeConvId) { setMessages([]); return; }
@@ -56,9 +112,11 @@ export default function App() {
     fetchMessages(activeConvId).then(setMessages).catch(console.error);
   }, [activeConvId]);
 
+  // ── 대화 핸들러 ─────────────────────────────────────────────
   const handleNeedConv = useCallback(async (): Promise<string> => {
+    if (!user) return '';
     if (MOCK_MODE) {
-      const conv = createMockConversation();
+      const conv = createMockConversation(user.user_id, user.name);
       setQuickConvs(prev => [conv, ...prev]);
       setActiveConvId(conv.id);
       activeConvIdRef.current = conv.id;
@@ -69,11 +127,12 @@ export default function App() {
     setActiveConvId(conv.id);
     activeConvIdRef.current = conv.id;
     return conv.id;
-  }, []);
+  }, [user]);
 
   const handleQuickNew = useCallback(async () => {
+    if (!user) return;
     if (MOCK_MODE) {
-      const conv = createMockConversation();
+      const conv = createMockConversation(user.user_id, user.name);
       setQuickConvs(prev => [conv, ...prev]);
       setActiveProjectId(null);
       setActiveConvId(conv.id);
@@ -85,7 +144,7 @@ export default function App() {
     setActiveProjectId(null);
     setActiveConvId(conv.id);
     setMessages([]);
-  }, []);
+  }, [user]);
 
   const handleQuickDelete = useCallback(async (convId: string) => {
     await deleteConversation(convId);
@@ -93,37 +152,55 @@ export default function App() {
     if (activeConvIdRef.current === convId) { setActiveConvId(null); setMessages([]); }
   }, []);
 
-  const handleCreateProject = useCallback(async (name: string, description = '') => {
+  const handleCreateProject = useCallback(async (req: ProjectCreateRequest) => {
+    if (!user) return;
     if (MOCK_MODE) {
       const proj: Project = {
         id: `p-${Date.now()}`,
-        name,
-        description,
+        ...req,
+        work_type: '',
+        latitude: 0,
+        longitude: 0,
+        created_by: user.user_id,
+        created_by_name: user.name,
+        my_project_role: 'owner',
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
       setProjects(prev => [proj, ...prev]);
       setActiveProjectId(proj.id);
+      showToast(`'${proj.name}' 프로젝트가 생성됐습니다.`, 'success');
       return;
     }
-    const proj = await createProject(name, description);
-    setProjects(prev => [proj, ...prev]);
-    setActiveProjectId(proj.id);
-  }, []);
+    try {
+      const proj = await createProject(req);
+      setProjects(prev => [proj, ...prev]);
+      setActiveProjectId(proj.id);
+      showToast(`'${proj.name}' 프로젝트가 생성됐습니다.`, 'success');
+    } catch {
+      showToast('프로젝트 생성에 실패했습니다.', 'error');
+    }
+  }, [user]);
 
   const handleDeleteProject = useCallback(async (projectId: string) => {
-    await deleteProject(projectId);
-    setProjects(prev => prev.filter(p => p.id !== projectId));
-    if (activeProjectId === projectId) {
-      setActiveProjectId(null);
-      setProjectConvs([]);
-      if (activeConvIdRef.current) { setActiveConvId(null); setMessages([]); }
+    try {
+      await deleteProject(projectId);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+      if (activeProjectId === projectId) {
+        setActiveProjectId(null);
+        setProjectConvs([]);
+        if (activeConvIdRef.current) { setActiveConvId(null); setMessages([]); }
+      }
+      showToast('프로젝트가 삭제됐습니다.', 'success');
+    } catch {
+      showToast('프로젝트 삭제에 실패했습니다.', 'error');
     }
   }, [activeProjectId]);
 
   const handleCreateProjectConv = useCallback(async () => {
-    if (!activeProjectId) return;
+    if (!activeProjectId || !user) return;
     if (MOCK_MODE) {
-      const conv = createMockConversation(activeProjectId);
+      const conv = createMockConversation(user.user_id, user.name, activeProjectId);
       setProjectConvs(prev => [conv, ...prev]);
       setActiveConvId(conv.id);
       setMessages([]);
@@ -133,7 +210,13 @@ export default function App() {
     setProjectConvs(prev => [conv, ...prev]);
     setActiveConvId(conv.id);
     setMessages([]);
-  }, [activeProjectId]);
+  }, [activeProjectId, user]);
+
+  const handleGoHome = useCallback(() => {
+    setActiveProjectId(null);
+    setActiveConvId(null);
+    setMessages([]);
+  }, []);
 
   const handleDeleteProjectConv = useCallback(async (convId: string) => {
     await deleteConversation(convId);
@@ -159,8 +242,18 @@ export default function App() {
   const closeSidebar = () => { setSidebarOpen(false); setTimeout(() => setShowOpenBtn(true), 250); };
   const openSidebar  = () => { setShowOpenBtn(false); setSidebarOpen(true); };
 
+  // ── 인증 확인 전 빈 화면 ────────────────────────────────────
+  if (!authReady) return <ToastContainer />;
+
+  // ── 비로그인 → 로그인 화면 ──────────────────────────────────
+  if (!user) return <><LoginPage onLogin={handleLogin} /><ToastContainer /></>;
+
+  // ── 로그인 후 메인 앱 ───────────────────────────────────────
+  const activeConv = [...quickConvs, ...projectConvs].find(c => c.id === activeConvId) ?? null;
+
   return (
     <div className="app">
+      <ToastContainer />
       {showOpenBtn && (
         <button className="sidebar-open-btn" onClick={openSidebar} title="사이드바 열기">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -172,6 +265,7 @@ export default function App() {
       )}
 
       <Sidebar
+        user={user}
         quickConvs={quickConvs}
         projects={projects}
         activeProjectId={activeProjectId}
@@ -186,11 +280,14 @@ export default function App() {
         onCreateProjectConv={handleCreateProjectConv}
         onDeleteProjectConv={handleDeleteProjectConv}
         onClose={closeSidebar}
+        onLogout={handleLogout}
+        onGoHome={handleGoHome}
         isOpen={sidebarOpen}
       />
 
       <ChatArea
         convId={activeConvId}
+        canWrite={activeConv?.can_write ?? true}
         messages={messages}
         onMessagesUpdate={handleMessagesUpdate}
         onNeedConv={handleNeedConv}
