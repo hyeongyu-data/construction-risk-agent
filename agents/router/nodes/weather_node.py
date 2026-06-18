@@ -31,6 +31,14 @@ def _cost_request_message(response_json: dict) -> HumanMessage:
     stoppage = risk.get('work_stoppage_required', False)
     delay_days = risk.get('delay_day_equivalent') or 0
 
+    # FULL_DAY 정책 보정: 작업 중단이 필요하면 시간 환산값(delay_day_equivalent)이
+    # 최소 지연일수(minimum_delay_days)보다 작아도 최소 일수를 적용한다.
+    # (예: 콘크리트 타설 중단 0.5일 → 정책상 최소 1일)
+    policy = risk.get('delay_policy') or {}
+    min_days = policy.get('minimum_delay_days')
+    if stoppage and min_days:
+        delay_days = max(delay_days, min_days)
+
     return HumanMessage(content=(
         f"[기상 리스크 분석 결과]\n"
         f"현장: {site.get('site_name', '-')} / 공종: {work.get('work_type', '-')}\n"
@@ -84,7 +92,10 @@ def weather_node(state: dict) -> Command:
         weather_response_str = response.model_dump_json(ensure_ascii=False)
 
         # 4. 장비/인건비 에이전트가 비용을 산정할 수 있도록 분석 결과를 메시지로 추가해 핸드오프
-        cost_request = _cost_request_message(response.model_dump())
+        # mode='json'으로 직렬화해야 enum이 값(예: 'CONCRETE_POURING', 'LOW')으로
+        # 변환된다. 기본 model_dump()는 enum 객체를 그대로 둬서 메시지에
+        # 'WorkType.CONCRETE_POURING' 같은 repr이 새어 나간다.
+        cost_request = _cost_request_message(response.model_dump(mode='json'))
         payload = {**state, 'messages': state['messages'] + [cost_request]}
 
         print('\n[기상 에이전트] 완료 → 장비/인건비 에이전트로 전달')

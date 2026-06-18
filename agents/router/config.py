@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 라우터 분류용 모델 (단순 A/B 분류 — Haiku로 충분, MODEL_ID env var로 오버라이드 가능)
-MODEL_ID = os.getenv("MODEL_ID", "claude-haiku-4-5-20251001")
+MODEL_ID = os.getenv("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 MAX_TOKENS = 100
 TEMPERATURE = 0.1
 

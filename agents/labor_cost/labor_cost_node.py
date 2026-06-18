@@ -31,8 +31,8 @@ _tools_spec.loader.exec_module(tools)
 load_dotenv()
 
 llm = ChatBedrockConverse(
-    model=os.getenv('MODEL_ID'),
-    client=boto3.client('bedrock-runtime', region_name=os.getenv('AWS_BEDROCK_REGION')),
+    model=os.getenv('MODEL_ID', 'us.anthropic.claude-haiku-4-5-20251001-v1:0'),
+    client=boto3.client('bedrock-runtime', region_name=os.getenv('AWS_BEDROCK_REGION', 'us-east-1')),
 )
 
 labor_cost_tools = [tools.get_labor_price, tools.search_standard_spec, tools.calculate_workers, tools.calculate_labor_cost]
