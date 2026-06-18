@@ -94,6 +94,53 @@ def _direct_concept_answer(query: str) -> str | None:
 def _direct_rag_no_evidence_answer(query: str, parts: dict) -> str | None:
     if parts.get("evidence"):
         return None
+    rag_status = parts.get("rag_status")
+    rag_source = parts.get("rag_source")
+    rag_query_type = parts.get("rag_query_type")
+    search_query = parts.get("rag_search_query") or query
+
+    if rag_query_type == "list_items" and rag_status == "success":
+        items = parts.get("rag_items") or []
+        if not items:
+            return "현재 표준품셈 RAG에 등록된 항목 목록을 확인하지 못했습니다."
+        lines = []
+        for idx, item in enumerate(items[:30], start=1):
+            item_name = item.get("item_name") if isinstance(item, dict) else str(item)
+            document = item.get("document") if isinstance(item, dict) else None
+            suffix = f" ({document})" if document else ""
+            lines.append(f"{idx}. {item_name}{suffix}")
+        extra = "" if len(items) <= 30 else f"\n\n외 {len(items) - 30}개 항목이 더 있습니다."
+        return "현재 표준품셈 RAG에 등록된 주요 항목은 다음과 같습니다.\n\n" + "\n".join(lines) + extra
+
+    if rag_status == "not_available":
+        if rag_source == "standard_specification":
+            return (
+                "현재 표준시방서 RAG 문서는 연결되어 있지 않아 시방서 기준을 조회할 수 없습니다. "
+                "표준품셈 기준 조회를 원하시면 '표준품셈에서 콘크리트 타설 기준 알려줘'처럼 질문해주세요."
+            )
+        if rag_source == "contract":
+            return (
+                "현재 계약서/특약 RAG 문서는 연결되어 있지 않아 계약 기준을 조회할 수 없습니다. "
+                "표준품셈 기준 조회를 원하시면 '표준품셈에서 해당 공종 기준 알려줘'처럼 질문해주세요."
+            )
+        return "현재 해당 문서 유형의 RAG 문서는 연결되어 있지 않아 기준을 조회할 수 없습니다."
+
+    if rag_status == "no_result":
+        return (
+            f"표준품셈에서 '{search_query}'와 직접 일치하는 기준을 찾지 못했습니다. "
+            "검색 결과의 유사도가 낮아 근거로 제시하지 않습니다."
+        )
+
+    if rag_status == "low_confidence":
+        return (
+            f"표준품셈에서 '{search_query}'와 유사한 항목은 일부 확인되었지만, "
+            "직접 근거로 사용하기에는 유사도가 충분하지 않습니다. "
+            "정확한 품셈 항목명이나 공종명을 조금 더 구체적으로 입력해 주세요."
+        )
+
+    if rag_status == "error":
+        return "문서 기준을 검색하는 중 오류가 발생했습니다. 잠시 후 다시 조회해 주세요."
+
     if "품셈" in query or "표준품셈" in query:
         return (
             "현재 연결된 문서 근거에서는 해당 품셈 항목의 원문 기준을 확인하지 못했습니다. "
@@ -180,6 +227,12 @@ def _collect_structured_parts(state: dict) -> dict:
         "evidence": [],
         "assumptions": [],
         "missing_info": [],
+        "rag_query_type": None,
+        "rag_status": None,
+        "rag_source": None,
+        "rag_search_query": None,
+        "rag_distance": None,
+        "rag_items": [],
         "total_extra_cost": None,
         "risk_level": None,
         "delay_days": None,
@@ -192,6 +245,14 @@ def _collect_structured_parts(state: dict) -> dict:
         result = state.get(key)
         if not isinstance(result, dict):
             continue
+
+        if key == "rag_result":
+            parts["rag_query_type"] = result.get("rag_query_type")
+            parts["rag_status"] = result.get("status")
+            parts["rag_source"] = result.get("rag_source")
+            parts["rag_search_query"] = result.get("search_query") or result.get("query")
+            parts["rag_distance"] = result.get("distance")
+            parts["rag_items"] = result.get("items") or []
 
         for item in _as_list(result.get("cost_items")):
             if isinstance(item, dict):
@@ -278,6 +339,12 @@ def _format_structured_parts(parts: dict) -> str:
             "evidence": parts["evidence"],
             "assumptions": parts["assumptions"],
             "missing_info": parts["missing_info"],
+            "rag_query_type": parts["rag_query_type"],
+            "rag_status": parts["rag_status"],
+            "rag_source": parts["rag_source"],
+            "rag_search_query": parts["rag_search_query"],
+            "rag_distance": parts["rag_distance"],
+            "rag_items": parts["rag_items"],
             "summary": {
                 "total_extra_cost": parts["total_extra_cost"],
                 "risk_level": parts["risk_level"],
@@ -397,8 +464,15 @@ def _build_structured_response(answer_type: str, final_response: str, parts: dic
         "cost_breakdown": parts["cost_breakdown"],
         "calculation_details": parts["calculation_details"],
         "evidence": parts["evidence"],
+        "items": parts["rag_items"],
         "assumptions": parts["assumptions"],
         "missing_info": parts["missing_info"],
+        "rag_query_type": parts["rag_query_type"],
+        "rag_status": parts["rag_status"],
+        "rag_source": parts["rag_source"],
+        "rag_search_query": parts["rag_search_query"],
+        "rag_distance": parts["rag_distance"],
+        "rag_items": parts["rag_items"],
     }
 
 

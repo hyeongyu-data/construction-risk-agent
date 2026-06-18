@@ -18,5 +18,6 @@ class RiskState(TypedDict):
     material_result: Optional[dict]
     rag_response: Optional[str]
     rag_result: Optional[dict]
+    rag_query_type: Optional[str]      # item_search | list_items
     structured_response: Optional[dict]
     final_response: Optional[str]      # 합성 노드가 만든 최종 사용자용 답변
