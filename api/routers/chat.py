@@ -35,7 +35,7 @@ def get_graph():
 
 
 @router.post("/conversations/{conv_id}/chat", response_model=ChatResponse)
-async def chat(conv_id: str, req: ChatRequest):
+def chat(conv_id: str, req: ChatRequest):
     """
     채팅 (핵심 엔드포인트)
 

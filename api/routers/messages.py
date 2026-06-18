@@ -19,11 +19,11 @@ async def list_messages(conv_id: str):
 
         # 메시지 조회
         cursor.execute("""
-            SELECT role, content, created_at
+            SELECT id, conversation_id, role, content, agent, created_at
             FROM messages
             WHERE conversation_id = %s
             ORDER BY created_at ASC
         """, (conv_id,))
         rows = cursor.fetchall()
-        messages = [dict_from_row(r) for r in rows]
+        messages = [{**dict_from_row(r), "id": str(dict_from_row(r)["id"]), "conversation_id": str(dict_from_row(r)["conversation_id"])} for r in rows]
         return {"messages": messages}

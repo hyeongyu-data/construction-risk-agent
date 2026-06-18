@@ -25,15 +25,27 @@ export default function App() {
 
   const [quickConvs, setQuickConvs]           = useState<Conversation[]>([]);
   const [projects, setProjects]               = useState<Project[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => localStorage.getItem('active_project_id'));
   const [projectConvs, setProjectConvs]       = useState<Conversation[]>([]);
-  const [activeConvId, setActiveConvId]       = useState<string | null>(null);
+  const [activeConvId, setActiveConvId]       = useState<string | null>(() => localStorage.getItem('active_conv_id'));
   const [messages, setMessages]               = useState<Message[]>([]);
   const [sidebarOpen, setSidebarOpen]         = useState(true);
   const [showOpenBtn, setShowOpenBtn]         = useState(false);
 
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
+
+  const selectProject = useCallback((id: string | null) => {
+    setActiveProjectId(id);
+    if (id) localStorage.setItem('active_project_id', id);
+    else localStorage.removeItem('active_project_id');
+  }, []);
+
+  const selectConv = useCallback((id: string | null) => {
+    setActiveConvId(id);
+    if (id) localStorage.setItem('active_conv_id', id);
+    else localStorage.removeItem('active_conv_id');
+  }, []);
 
   // ── 인증 복원 (새로고침 시) ─────────────────────────────────
   useEffect(() => {
@@ -55,6 +67,8 @@ export default function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('active_project_id');
+    localStorage.removeItem('active_conv_id');
     setUser(null);
     setQuickConvs([]);
     setProjects([]);
@@ -124,33 +138,37 @@ export default function App() {
     }
     const conv = await createQuickConversation();
     setQuickConvs(prev => [conv, ...prev]);
-    setActiveConvId(conv.id);
+    selectConv(conv.id);
     activeConvIdRef.current = conv.id;
     return conv.id;
-  }, [user]);
+  }, [user, selectConv]);
 
   const handleQuickNew = useCallback(async () => {
     if (!user) return;
     if (MOCK_MODE) {
       const conv = createMockConversation(user.user_id, user.name);
       setQuickConvs(prev => [conv, ...prev]);
-      setActiveProjectId(null);
-      setActiveConvId(conv.id);
+      selectProject(null);
+      selectConv(conv.id);
       setMessages([]);
       return;
     }
-    const conv = await createQuickConversation();
-    setQuickConvs(prev => [conv, ...prev]);
-    setActiveProjectId(null);
-    setActiveConvId(conv.id);
-    setMessages([]);
-  }, [user]);
+    try {
+      const conv = await createQuickConversation();
+      setQuickConvs(prev => [conv, ...prev]);
+      selectProject(null);
+      selectConv(conv.id);
+      setMessages([]);
+    } catch {
+      showToast('대화 생성에 실패했습니다.', 'error');
+    }
+  }, [user, selectProject, selectConv]);
 
   const handleQuickDelete = useCallback(async (convId: string) => {
     await deleteConversation(convId);
     setQuickConvs(prev => prev.filter(c => c.id !== convId));
-    if (activeConvIdRef.current === convId) { setActiveConvId(null); setMessages([]); }
-  }, []);
+    if (activeConvIdRef.current === convId) { selectConv(null); setMessages([]); }
+  }, [selectConv]);
 
   const handleCreateProject = useCallback(async (req: ProjectCreateRequest) => {
     if (!user) return;
@@ -168,61 +186,65 @@ export default function App() {
         updated_at: new Date().toISOString(),
       };
       setProjects(prev => [proj, ...prev]);
-      setActiveProjectId(proj.id);
+      selectProject(proj.id);
       showToast(`'${proj.name}' 프로젝트가 생성됐습니다.`, 'success');
       return;
     }
     try {
       const proj = await createProject(req);
       setProjects(prev => [proj, ...prev]);
-      setActiveProjectId(proj.id);
+      selectProject(proj.id);
       showToast(`'${proj.name}' 프로젝트가 생성됐습니다.`, 'success');
     } catch {
       showToast('프로젝트 생성에 실패했습니다.', 'error');
     }
-  }, [user]);
+  }, [user, selectProject]);
 
   const handleDeleteProject = useCallback(async (projectId: string) => {
     try {
       await deleteProject(projectId);
       setProjects(prev => prev.filter(p => p.id !== projectId));
       if (activeProjectId === projectId) {
-        setActiveProjectId(null);
+        selectProject(null);
         setProjectConvs([]);
-        if (activeConvIdRef.current) { setActiveConvId(null); setMessages([]); }
+        if (activeConvIdRef.current) { selectConv(null); setMessages([]); }
       }
       showToast('프로젝트가 삭제됐습니다.', 'success');
     } catch {
       showToast('프로젝트 삭제에 실패했습니다.', 'error');
     }
-  }, [activeProjectId]);
+  }, [activeProjectId, selectProject, selectConv]);
 
   const handleCreateProjectConv = useCallback(async () => {
     if (!activeProjectId || !user) return;
     if (MOCK_MODE) {
       const conv = createMockConversation(user.user_id, user.name, activeProjectId);
       setProjectConvs(prev => [conv, ...prev]);
-      setActiveConvId(conv.id);
+      selectConv(conv.id);
       setMessages([]);
       return;
     }
-    const conv = await createConversation(activeProjectId);
-    setProjectConvs(prev => [conv, ...prev]);
-    setActiveConvId(conv.id);
-    setMessages([]);
-  }, [activeProjectId, user]);
+    try {
+      const conv = await createConversation(activeProjectId);
+      setProjectConvs(prev => [conv, ...prev]);
+      selectConv(conv.id);
+      setMessages([]);
+    } catch {
+      showToast('대화 생성에 실패했습니다.', 'error');
+    }
+  }, [activeProjectId, user, selectConv]);
 
   const handleGoHome = useCallback(() => {
-    setActiveProjectId(null);
-    setActiveConvId(null);
+    selectProject(null);
+    selectConv(null);
     setMessages([]);
-  }, []);
+  }, [selectProject, selectConv]);
 
   const handleDeleteProjectConv = useCallback(async (convId: string) => {
     await deleteConversation(convId);
     setProjectConvs(prev => prev.filter(c => c.id !== convId));
-    if (activeConvIdRef.current === convId) { setActiveConvId(null); setMessages([]); }
-  }, []);
+    if (activeConvIdRef.current === convId) { selectConv(null); setMessages([]); }
+  }, [selectConv]);
 
   const handleMessagesUpdate = useCallback((newMessages: Message[]) => {
     setMessages(newMessages);
@@ -236,8 +258,8 @@ export default function App() {
   }, []);
 
   const handleSelectConv = useCallback((id: string) => {
-    setActiveConvId(id);
-  }, []);
+    selectConv(id);
+  }, [selectConv]);
 
   const closeSidebar = () => { setSidebarOpen(false); setTimeout(() => setShowOpenBtn(true), 250); };
   const openSidebar  = () => { setShowOpenBtn(false); setSidebarOpen(true); };
@@ -274,7 +296,7 @@ export default function App() {
         onQuickNew={handleQuickNew}
         onQuickDelete={handleQuickDelete}
         onSelectConversation={handleSelectConv}
-        onSelectProject={(id) => setActiveProjectId(id === activeProjectId ? null : id)}
+        onSelectProject={(id) => selectProject(id === activeProjectId ? null : id)}
         onCreateProject={handleCreateProject}
         onDeleteProject={handleDeleteProject}
         onCreateProjectConv={handleCreateProjectConv}

@@ -72,18 +72,46 @@ def router_node(state: dict) -> Command:
         )
 
     result = classify_question(classify_input)
-    print(f'\n[라우터] {result["type"]} ({result["type_name"]}) — {result["reason"]}')
+    needs_weather = result["needs_weather"]
+    agents = result.get("agents", [])
+    reason = result.get("reason", "")
 
-    if result['type'] == 'A':
+    question_type = 'A' if needs_weather else 'B'
+    print(f'\n[라우터] {"A(기상악화)" if needs_weather else "B(현장변경)"} - {reason}')
+    print(f'[라우터] 실행 에이전트: {agents}')
+
+    # 건설 무관 질문 — 에이전트 호출 없이 바로 종료
+    if not needs_weather and not agents:
+        off_topic = (
+            "안녕하세요! 저는 건설 현장 리스크 분석 AI입니다.\n\n"
+            "다음과 같은 질문에 도움을 드릴 수 있습니다:\n"
+            "- **기상 리스크**: 날씨로 인한 공정 지연 분석\n"
+            "- **인건비 산출**: 표준품셈 기반 직접노무비\n"
+            "- **장비 비용**: 장비 대기 및 임대 비용\n"
+            "- **자재 가격**: 건설 자재 시세 및 조달 리스크\n\n"
+            "건설 현장 관련 질문을 입력해 주세요."
+        )
+        log.info("router_node: 건설 무관 질문 -> 즉시 종료")
+        return Command(
+            update={
+                'question_type': question_type,
+                'needs_weather': False,
+                'target_agents': [],
+                'final_response': off_topic,
+                'messages': [AIMessage(content=off_topic)],
+            },
+            goto=END,
+        )
+
+    if needs_weather:
         goto = 'weather'
         goto_names = 'weather'
     else:
-        goto = [
-            Send('equipment', state),
-            Send('material', state),
-            Send('labor_cost', state),
-        ]
-        goto_names = 'equipment, material, labor_cost'
+        goto = [Send(agent, state) for agent in agents]
+        goto_names = ', '.join(agents)
 
-    log.info(f"router_node 분기: {result['type']} → {goto_names}")
-    return Command(update={'question_type': result['type']}, goto=goto)
+    log.info(f"router_node 분기: {question_type} -> {goto_names}")
+    return Command(
+        update={'question_type': question_type, 'needs_weather': needs_weather, 'target_agents': agents},
+        goto=goto,
+    )

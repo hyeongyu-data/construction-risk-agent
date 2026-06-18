@@ -340,6 +340,21 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
 
   // ── 웰컴 화면 ────────────────────────────────
   if (isEmpty) {
+    // 대화가 선택된 상태에서 메시지가 없을 때 — 간결한 빈 채팅 화면
+    if (convId) {
+      return (
+        <main className="chat-area">
+          <div className="centered-welcome">
+            <div className="welcome-header">
+              <p className="welcome-subtitle">메시지를 입력해 대화를 시작하세요</p>
+            </div>
+            <div className="centered-input-area">{inputBox}</div>
+          </div>
+        </main>
+      );
+    }
+
+    // 아무 대화도 선택 안 된 초기 화면
     return (
       <main className="chat-area">
         <div className="centered-welcome">

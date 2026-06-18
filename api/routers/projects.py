@@ -6,7 +6,7 @@ import uuid
 from typing import Optional
 
 from api.database import get_db_cursor, dict_from_row
-from api.models import ProjectCreate, Project
+from api.models import ProjectCreate, Project, MemberAddRequest
 from api.security import get_current_user
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -236,6 +236,87 @@ async def update_project(
         """, (project_id,))
         row = cursor.fetchone()
         return dict_from_row(row)
+
+
+@router.get("/{project_id}/members", response_model=list[dict])
+async def list_project_members(
+    project_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """프로젝트 멤버 목록 조회"""
+    with get_db_cursor() as (cursor, conn):
+        if not _check_project_member(cursor, project_id, current_user["user_id"]):
+            raise HTTPException(status_code=403, detail="프로젝트 멤버가 아닙니다")
+
+        cursor.execute("""
+            SELECT u.id AS user_id, u.name, u.email, pm.project_role
+            FROM project_members pm
+            JOIN users u ON u.id = pm.user_id
+            WHERE pm.project_id = %s
+            ORDER BY pm.created_at ASC
+        """, (project_id,))
+        rows = cursor.fetchall()
+        return [{**dict_from_row(r), "user_id": str(dict_from_row(r)["user_id"])} for r in rows]
+
+
+@router.post("/{project_id}/members", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def add_project_member(
+    project_id: str,
+    req: MemberAddRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """프로젝트 멤버 초대 (owner만 가능)"""
+    email = req.email
+    role = req.role
+
+    with get_db_cursor() as (cursor, conn):
+        if not _check_project_owner(cursor, project_id, current_user["user_id"]):
+            raise HTTPException(status_code=403, detail="owner만 멤버를 초대할 수 있습니다")
+
+        cursor.execute("SELECT id, name, email FROM users WHERE email = %s", (email,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            raise HTTPException(status_code=404, detail="등록된 사용자를 찾을 수 없습니다")
+
+        user = dict_from_row(user_row)
+        user_id = str(user["id"])
+
+        cursor.execute(
+            "SELECT id FROM project_members WHERE project_id = %s AND user_id = %s",
+            (project_id, user_id),
+        )
+        if cursor.fetchone():
+            raise HTTPException(status_code=409, detail="이미 프로젝트에 참여 중인 사용자입니다")
+
+        member_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat()
+        cursor.execute("""
+            INSERT INTO project_members (id, project_id, user_id, project_role, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (member_id, project_id, user_id, role, now))
+        conn.commit()
+
+        return {"user_id": user_id, "name": user["name"], "email": user["email"], "project_role": role}
+
+
+@router.delete("/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_project_member(
+    project_id: str,
+    user_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """프로젝트 멤버 제거 (owner만 가능)"""
+    with get_db_cursor() as (cursor, conn):
+        if not _check_project_owner(cursor, project_id, current_user["user_id"]):
+            raise HTTPException(status_code=403, detail="owner만 멤버를 제거할 수 있습니다")
+
+        cursor.execute(
+            "DELETE FROM project_members WHERE project_id = %s AND user_id = %s AND project_role != 'owner'",
+            (project_id, user_id),
+        )
+        conn.commit()
+
+    return None
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
