@@ -87,11 +87,9 @@ async def chat(conv_id: str, req: ChatRequest):
                 "messages": lc_messages,
                 "project_id": project_id  # ← 핵심! weather_node가 이 값 사용
             }, stream_mode="values"):
-                # 마지막 메시지가 AI 응답이고 tool_calls가 없으면 최종 응답
-                if evt.get("messages"):
-                    last_msg = evt["messages"][-1]
-                    if last_msg.type == "ai" and not getattr(last_msg, "tool_calls", None):
-                        ai_response_content = last_msg.content
+                # synthesize_node가 최종 응답을 final_response에 반환
+                if evt.get("final_response"):
+                    ai_response_content = evt["final_response"]
 
             if not ai_response_content:
                 raise RuntimeError("No AI response generated")
