@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { User, Project, Conversation, ProjectCreateRequest } from '../types';
 import { Settings } from '../settings';
 import ProjectCreateModal from './ProjectCreateModal';
@@ -21,6 +21,7 @@ interface Props {
   onDeleteProject: (id: string) => void;
   onCreateProjectConv: () => void;
   onDeleteProjectConv: (id: string) => void;
+  onRenameConversation: (convId: string, title: string) => void;
   onClose: () => void;
   onLogout: () => void;
   onGoHome: () => void;
@@ -32,13 +33,50 @@ interface Props {
 
 
 function ConvItem({
-  conv, isActive, onSelect, onDelete, showOwner,
+  conv, isActive, onSelect, onDelete, onRename, showOwner,
 }: {
   conv: Conversation; isActive: boolean;
-  onSelect: () => void; onDelete: (() => void) | null;
+  onSelect: () => void;
+  onDelete: (() => void) | null;
+  onRename: ((title: string) => void) | null;
   showOwner?: boolean;
 }) {
   const [confirmDel, setConfirmDel] = useState(false);
+  const [isRenaming, setIsRenaming]   = useState(false);
+  const [renameVal, setRenameVal]     = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startRename = () => {
+    setRenameVal(conv.title);
+    setIsRenaming(true);
+  };
+
+  const commitRename = () => {
+    const t = renameVal.trim();
+    if (t && t !== conv.title) onRename?.(t);
+    setIsRenaming(false);
+  };
+
+  if (isRenaming) {
+    return (
+      <div className="list-item-row renaming">
+        <input
+          ref={inputRef}
+          className="conv-rename-input"
+          value={renameVal}
+          onChange={e => setRenameVal(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter')  { e.preventDefault(); commitRename(); }
+            if (e.key === 'Escape') setIsRenaming(false);
+          }}
+          onBlur={commitRename}
+          autoFocus
+          maxLength={100}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="list-item-row">
       <button
@@ -58,6 +96,15 @@ function ConvItem({
           )}
         </div>
       </button>
+
+      {onRename && (
+        <button className="row-rename-btn" onClick={startRename} title="제목 변경">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+      )}
 
       {onDelete && (
         confirmDel ? (
@@ -101,6 +148,7 @@ export default function Sidebar({
   onQuickNew, onQuickDelete, onSelectConversation,
   onSelectProject, onCreateProject, onDeleteProject,
   onCreateProjectConv, onDeleteProjectConv,
+  onRenameConversation,
   onClose, onLogout, onGoHome, isOpen,
   loadingProjectConvs,
   settings, onSettingsChange,
@@ -295,6 +343,7 @@ export default function Sidebar({
                             isActive={activeConvId === conv.id}
                             onSelect={() => onSelectConversation(conv.id)}
                             onDelete={conv.can_write ? () => onDeleteProjectConv(conv.id) : null}
+                            onRename={conv.can_write ? (t) => onRenameConversation(conv.id, t) : null}
                             showOwner
                           />
                         ))}
@@ -344,6 +393,7 @@ export default function Sidebar({
                 isActive={activeConvId === conv.id}
                 onSelect={() => onSelectConversation(conv.id)}
                 onDelete={() => onQuickDelete(conv.id)}
+                onRename={(t) => onRenameConversation(conv.id, t)}
               />
             ))}
           </div>

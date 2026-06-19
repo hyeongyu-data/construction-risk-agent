@@ -7,7 +7,7 @@ import { User, Project, Conversation, Message, ProjectCreateRequest, ProjectRole
 import {
   fetchQuickConversations, createQuickConversation,
   fetchProjects, createProject, deleteProject,
-  fetchConversations, createConversation, deleteConversation,
+  fetchConversations, createConversation, deleteConversation, renameConversation,
   fetchMessages,
   registerUnauthorizedHandler,
 } from './api';
@@ -324,6 +324,20 @@ export default function App() {
     setMessages([]);
   }, [selectProject, selectConv]);
 
+  const handleRenameConversation = useCallback(async (convId: string, newTitle: string) => {
+    try {
+      await renameConversation(convId, newTitle);
+      setQuickConvs(prev => prev.map(c => c.id === convId ? { ...c, title: newTitle } : c));
+      setProjectConvs(prev => {
+        const next = prev.map(c => c.id === convId ? { ...c, title: newTitle } : c);
+        if (activeProjectId) projectConvsCacheRef.current.set(activeProjectId, next);
+        return next;
+      });
+    } catch {
+      showToast('제목 변경에 실패했습니다.', 'error');
+    }
+  }, [activeProjectId]);
+
   const handleDeleteProjectConv = useCallback(async (convId: string) => {
     await deleteConversation(convId);
     setProjectConvs(prev => {
@@ -395,6 +409,7 @@ export default function App() {
         onDeleteProject={handleDeleteProject}
         onCreateProjectConv={handleCreateProjectConv}
         onDeleteProjectConv={handleDeleteProjectConv}
+        onRenameConversation={handleRenameConversation}
         onClose={closeSidebar}
         onLogout={handleLogout}
         onGoHome={handleGoHome}
