@@ -215,6 +215,11 @@ def _review_labor(structured: dict) -> list:
 
         total = structured.get("total_cost")
         item_sum = sum(it.get("amount") for it in items if isinstance(it.get("amount"), (int, float)))
+        if items and not isinstance(total, (int, float)):
+            problems.append(
+                f"status가 CALCULATED/PARTIAL인데 total_cost가 null입니다. "
+                f"cost_items amount 합계({int(item_sum):,})를 total_cost에 설정하세요."
+            )
         if items and isinstance(total, (int, float)) and int(total) != int(item_sum):
             problems.append(
                 f"total_cost({int(total):,})가 cost_items 합계({int(item_sum):,})와 일치하지 않습니다."

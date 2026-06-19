@@ -319,6 +319,15 @@ def _collect_structured_parts(state: dict) -> dict:
                 parts["missing_info"].append({"agent": label, "field": item})
 
         total_cost = result.get("total_cost")
+        if not isinstance(total_cost, (int, float)):
+            # total_cost가 null이면 cost_items[].amount 합산으로 대체
+            amounts = [
+                it.get("amount")
+                for it in _as_list(result.get("cost_items"))
+                if isinstance(it.get("amount"), (int, float))
+            ]
+            if amounts:
+                total_cost = sum(amounts)
         if isinstance(total_cost, (int, float)):
             total_candidates.append(total_cost)
 
