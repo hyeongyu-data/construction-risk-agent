@@ -2,7 +2,7 @@
 
 import os
 import sys
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from datetime import datetime
 import uuid
 from langchain_core.messages import HumanMessage, AIMessage
@@ -10,6 +10,7 @@ from psycopg2.extras import Json
 
 from api.database import get_db_cursor, dict_from_row
 from api.models import ChatRequest, Message
+from api.security import get_current_user
 
 router = APIRouter(tags=["chat"])
 CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT", "20"))
@@ -37,12 +38,12 @@ def get_graph():
 
 
 @router.post("/conversations/{conv_id}/chat", response_model=Message)
-def chat(conv_id: str, req: ChatRequest):
+def chat(conv_id: str, req: ChatRequest, current_user: dict = Depends(get_current_user)):
     """
     채팅 (핵심 엔드포인트)
 
     흐름:
-    1. conversation 존재 확인 → project_id 추출
+    1. conversation 존재 확인 → 권한 체크
     2. 메시지 히스토리 조회
     3. LangChain 메시지로 변환
     4. graph.stream() 호출 (project_id 포함)
@@ -51,7 +52,7 @@ def chat(conv_id: str, req: ChatRequest):
     with get_db_cursor() as (cursor, conn):
         # 1. Conversation 조회
         cursor.execute("""
-            SELECT id, project_id FROM conversations WHERE id = %s
+            SELECT id, project_id, owner_id FROM conversations WHERE id = %s
         """, (conv_id,))
         conv_row = cursor.fetchone()
         if not conv_row:
@@ -59,6 +60,16 @@ def chat(conv_id: str, req: ChatRequest):
 
         conv_dict = dict_from_row(conv_row)
         project_id = conv_dict["project_id"]
+
+        # 권한 체크: 대화 작성자이거나 프로젝트 멤버
+        is_owner = str(conv_dict["owner_id"]) == current_user["user_id"]
+        if not is_owner:
+            cursor.execute(
+                "SELECT id FROM project_members WHERE project_id = %s AND user_id = %s",
+                (project_id, current_user["user_id"]),
+            )
+            if not cursor.fetchone():
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="권한이 없습니다")
 
         # 2. 메시지 히스토리 조회
         cursor.execute("""

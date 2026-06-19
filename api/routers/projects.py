@@ -94,6 +94,12 @@ async def create_project(req: ProjectCreate, current_user: dict = Depends(get_cu
     }
     ```
     """
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="admin만 프로젝트를 생성할 수 있습니다",
+        )
+
     project_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
 

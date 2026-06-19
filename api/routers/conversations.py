@@ -83,11 +83,18 @@ async def list_project_conversations(
     project_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """프로젝트의 대화 목록"""
+    """프로젝트의 대화 목록 (프로젝트 멤버만)"""
     with get_db_cursor() as (cursor, conn):
         cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
+
+        cursor.execute(
+            "SELECT id FROM project_members WHERE project_id = %s AND user_id = %s",
+            (project_id, current_user["user_id"]),
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=403, detail="프로젝트 멤버만 조회할 수 있습니다")
 
         cursor.execute("""
             SELECT
@@ -112,11 +119,18 @@ async def create_project_conversation(
     req: ConversationCreate,
     current_user: dict = Depends(get_current_user),
 ):
-    """프로젝트 대화 생성"""
+    """프로젝트 대화 생성 (프로젝트 멤버만)"""
     with get_db_cursor() as (cursor, conn):
         cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
+
+        cursor.execute(
+            "SELECT id FROM project_members WHERE project_id = %s AND user_id = %s",
+            (project_id, current_user["user_id"]),
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=403, detail="프로젝트 멤버만 대화를 생성할 수 있습니다")
 
         conv_id = str(uuid.uuid4())
         now = datetime.utcnow()
