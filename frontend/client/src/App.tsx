@@ -354,6 +354,7 @@ export default function App() {
         </button>
       )}
 
+      {sidebarOpen && <div className="sidebar-overlay" onClick={closeSidebar} />}
       <Sidebar
         user={user}
         quickConvs={quickConvs}
