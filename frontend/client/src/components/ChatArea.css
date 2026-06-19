@@ -24,13 +24,13 @@
 .welcome-logo {
   font-size: 26px;
   font-weight: 800;
-  color: #14532d;
+  color: var(--logo-color);
   letter-spacing: -0.5px;
   margin-bottom: 14px;
 }
 
 .welcome-logo span {
-  color: #3a7d44;
+  color: var(--logo-accent);
   font-weight: 400;
 }
 

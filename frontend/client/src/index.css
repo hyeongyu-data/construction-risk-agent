@@ -10,6 +10,8 @@
   --modal-bg: #ffffff;
   --send-btn-bg: #1a1a1a;
   --send-btn-color: #ffffff;
+  --logo-color: #14532d;
+  --logo-accent: #3a7d44;
 }
 
 [data-theme="dark"] {
@@ -24,6 +26,8 @@
   --modal-bg: #2e2f33;
   --send-btn-bg: #3a7d44;
   --send-btn-color: #ffffff;
+  --logo-color: #5aad68;
+  --logo-accent: #5aad68;
 }
 
 /* ── 스크롤바 ── */

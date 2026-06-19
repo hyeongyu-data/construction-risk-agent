@@ -35,7 +35,7 @@
 .logo-text {
   font-size: 18px;
   font-weight: 700;
-  color: #14532d;
+  color: var(--logo-color);
   letter-spacing: -0.3px;
 }
 
@@ -47,7 +47,7 @@
   border-radius: 6px;
   font-size: 18px;
   font-weight: 700;
-  color: #14532d;
+  color: var(--logo-color);
   letter-spacing: -0.3px;
   cursor: pointer;
   font-family: inherit;
@@ -57,7 +57,7 @@
 .logo-btn:hover { opacity: 0.75; background-color: rgba(58, 125, 68, 0.08); }
 
 .logo-ai {
-  color: #3a7d44;
+  color: var(--logo-accent);
   font-weight: 400;
 }
 
