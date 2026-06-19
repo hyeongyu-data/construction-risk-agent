@@ -431,9 +431,33 @@ export default function ChatArea({ convId, canWrite, messages, loadingMessages, 
 
   const lastAssistantIdx = messages.map(m => m.role).lastIndexOf('assistant');
 
+  const handleExport = () => {
+    const lines = messages.map(m => {
+      const role = m.role === 'user' ? '사용자' : `AI (${AGENT_META[m.agent as AgentType]?.label ?? '어시스턴트'})`;
+      return `[${formatTime(m.created_at)}] ${role}\n${m.content}`;
+    }).join('\n\n---\n\n');
+    const blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `대화_${new Date().toLocaleDateString('ko-KR').replace(/\. /g, '-').replace('.', '')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main className="chat-area">
       <div className="messages-wrap">
+        <div className="chat-toolbar">
+          <button className="export-btn" onClick={handleExport} title="대화 내보내기">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            내보내기
+          </button>
+        </div>
         <div className="messages" ref={messagesContainerRef} onScroll={updateScrollState}>
           {loadingMessages && <MessageSkeleton />}
           {!loadingMessages && messages.map((msg, i) => (

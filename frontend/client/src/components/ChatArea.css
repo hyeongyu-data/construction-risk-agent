@@ -141,6 +141,34 @@
   overflow: hidden;
 }
 
+/* ── 툴바 ── */
+.chat-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 24px 0;
+  flex-shrink: 0;
+}
+
+.export-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+.export-btn:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-muted);
+  background-color: var(--bg-secondary);
+}
+
 /* ── 메시지 영역 ── */
 .messages {
   flex: 1;
