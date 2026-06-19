@@ -140,6 +140,26 @@ def _classify_by_rule(query: str) -> dict | None:
 
     return None
 
+_CURRENT_QUERY_MARKER = "[현재 분류할 사용자 메시지]"
+_WEATHER_RISK_RE = re.compile(
+    r"비\s*예보|눈\s*예보|우천|강수|폭우|폭설|태풍|강풍|풍속|한파|폭염|기상|날씨|"
+    r"품질\s*리스크|품질\s*위험|경화\s*불량|건조\s*대기|습도|결빙|동결",
+    re.IGNORECASE,
+)
+
+
+def _latest_user_query(query: str) -> str:
+    """분류 입력에 이전 대화가 섞여 있어도 현재 사용자 메시지만 추출한다."""
+    if _CURRENT_QUERY_MARKER in query:
+        return query.rsplit(_CURRENT_QUERY_MARKER, 1)[-1].strip()
+    return query
+
+
+def _requests_weather_risk(query: str) -> bool:
+    """지연일 산출 목적이 아니어도 기상/품질 리스크 검토 요청이면 weather를 태운다."""
+    current_query = _latest_user_query(query)
+    return bool(_WEATHER_RISK_RE.search(current_query))
+
 
 def classify_question(query: str) -> dict:
     """질문을 분석해 실행 계획을 반환한다.
@@ -161,31 +181,23 @@ def classify_question(query: str) -> dict:
         }
     """
     log.debug(f"classify_question 호출 — query={query!r}")
-    prompt = f"""다음 건설 현장 질문을 A 또는 B로 분류하세요.
+    prompt = f"""다음 건설 현장 질문을 분석해 실행 계획을 JSON으로 반환하세요.
 
-질문 타입:
-{_TYPE_DESCRIPTIONS}
+[비용 도메인] — 질문에 실제로 관련된 것만 고른다.
+- equipment: 장비 대기비 (크레인·펌프차·타워크레인·굴착기·고소작업대·임대료·장비 대기 등)
+- material: 자재비 (자재 단가·추가 물량·발주·철근·레미콘·H파일 등)
+- labor_cost: 인건비 (노임단가·인부·품셈·직접노무비·인력 투입 등)
 
-[분류 규칙] — 반드시 아래 순서로 판단한다.
+[기상 선행 판단 — needs_weather]
+- true: 비·눈·바람·태풍·한파·폭염 등 기상 사유가 있고, 지연 일수가 아직 확정되지 않아
+  기상 예보를 먼저 확인·추정해야 하는 경우. (예: "내일 비온다는데 확인하고 지연 추측해서 비용 산정")
+  → 기상 분석이 먼저 지연 일수를 산출한 뒤 그 결과로 비용 에이전트가 산정한다.
+- false: 지연 일수가 이미 확정됐거나(예: "3일 대기했다", "이틀째 멈춰 있다") 기상과 무관한 경우.
 
-규칙 1. 지연 일수/지연 여부를 아직 모르고, 기상 예보를 확인해야 알 수 있는 경우 → A
-  - 미래 기상 이슈를 다루며, 지연 일수를 사용자가 명시하지 않고 "확인하고", "추측해서",
-    "있을 것 같은데", "예상되는" 등 미확정 표현으로 기상청 조회·추정을 요청하는 경우
-  - 비용 산정을 함께 요청했더라도, 지연 일수가 아직 정해지지 않아 기상 분석이 선행되어야 하면 A
-    (기상 에이전트가 예보를 조회해 지연 일수를 산출한 뒤, 그 결과로 장비/인건비 비용까지 자동 산정됨)
-  - 예: "내일 비온다는데 확인하고 지연 일자 추측해서 추가비용 산정해줘" → A
-
-규칙 2. 비용 산정이 핵심 의도이고, 지연 일수/지연 사실이 이미 확정되어 있는 경우 → B
-  - 장비 대기 비용, 추가 비용, 얼마인가요, 산정해주세요 등이 포함된 경우
-  - 기상 원인이 언급되었더라도 "3일 대기했다", "이틀째 멈춰 있다" 처럼 지연 일수가 이미
-    주어져 있어 기상 예보 확인이 더 필요 없으면 B
-  - 예: "강풍으로 크레인이 2일 대기했는데 비용은요?" → B
-
-규칙 3. 비용 산정 의도 없이 기상 원인만 언급된 경우 → A
-  - 기상 영향 분석, 공정 지연 우려, 기상 리스크 평가가 목적인 경우
-  - 예: "태풍으로 철골 공정이 지연될 것 같습니다" → A
-
-규칙 4. 애매한 경우 기본값은 B
+[규칙]
+1. needs_weather=true인데 비용 도메인이 명확하지 않으면 agents=["equipment","labor_cost"] (기상 지연 → 장비·인력 대기).
+2. 어떤 비용 도메인과도 무관하고 기상도 아니면 agents=[] (빈 배열).
+3. 애매하면 관련 가능성이 있는 도메인을 모두 포함한다.
 
 질문: {query}
 
@@ -226,11 +238,18 @@ JSON으로만 응답하세요:
     except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
         log.warning(f"분류 파싱 실패 ({e}), 전체 에이전트로 기본 처리. 원본: {text!r}")
         return {
-            "needs_weather": False,
+            "needs_weather": _requests_weather_risk(query),
             "agents": list(_DEFAULT_AGENTS),
             "answer_type": "COST_REPORT",
             "reason": "파싱 실패, 전체 비용 에이전트로 기본 처리",
         }
+
+    if _requests_weather_risk(query) and not needs_weather:
+        needs_weather = True
+        reason = (
+            f"{reason}; 현재 사용자 메시지에 기상/품질 리스크 검토 요청이 있어 "
+            "지연일수 확정 여부와 무관하게 weather 에이전트 실행"
+        ).strip("; ")
 
     # 폴백 보정
     if needs_weather and not agents:

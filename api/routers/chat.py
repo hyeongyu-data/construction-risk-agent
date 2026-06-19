@@ -8,9 +8,10 @@ import uuid
 from langchain_core.messages import HumanMessage, AIMessage
 
 from api.database import get_db_cursor, dict_from_row
-from api.models import ChatRequest, ChatResponse
+from api.models import ChatRequest, Message
 
 router = APIRouter(tags=["chat"])
+CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT", "20"))
 
 # Graph 임포트 (라우터 담당자가 제공)
 # TODO: 라우터 팀에서 graph 객체를 제공받으면 여기에 import
@@ -34,8 +35,8 @@ def get_graph():
     return _graph
 
 
-@router.post("/conversations/{conv_id}/chat", response_model=ChatResponse)
-async def chat(conv_id: str, req: ChatRequest):
+@router.post("/conversations/{conv_id}/chat", response_model=Message)
+def chat(conv_id: str, req: ChatRequest):
     """
     채팅 (핵심 엔드포인트)
 
@@ -60,10 +61,16 @@ async def chat(conv_id: str, req: ChatRequest):
 
         # 2. 메시지 히스토리 조회
         cursor.execute("""
-            SELECT role, content FROM messages
-            WHERE conversation_id = %s
-            ORDER BY created_at ASC
-        """, (conv_id,))
+            SELECT role, content
+            FROM (
+                SELECT id, role, content, created_at
+                FROM messages
+                WHERE conversation_id = %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT %s
+            ) recent_messages
+            ORDER BY created_at ASC, id ASC
+        """, (conv_id, CHAT_HISTORY_LIMIT))
         msg_rows = cursor.fetchall()
 
         # 3. LangChain 메시지로 변환
@@ -72,8 +79,10 @@ async def chat(conv_id: str, req: ChatRequest):
             msg_dict = dict_from_row(msg_row)
             if msg_dict["role"] == "user":
                 lc_messages.append(HumanMessage(content=msg_dict["content"]))
-            else:
+            elif msg_dict["role"] == "assistant":
                 lc_messages.append(AIMessage(content=msg_dict["content"]))
+            else:
+                print(f"[chat] Ignoring message with unknown role: {msg_dict['role']}")
 
         # 사용자 메시지 추가
         lc_messages.append(HumanMessage(content=req.content))
@@ -98,7 +107,8 @@ async def chat(conv_id: str, req: ChatRequest):
             raise HTTPException(status_code=500, detail=f"AI agent error: {str(e)}")
 
         # 5. 메시지 저장 (사용자 + AI)
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
 
         # 사용자 메시지
         user_msg_id = str(uuid.uuid4())
@@ -116,4 +126,11 @@ async def chat(conv_id: str, req: ChatRequest):
 
         conn.commit()
 
-        return {"content": ai_response_content}
+        return {
+            "id": ai_msg_id,
+            "conversation_id": conv_id,
+            "role": "assistant",
+            "content": ai_response_content,
+            "agent": None,
+            "created_at": now.isoformat(),
+        }

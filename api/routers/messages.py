@@ -19,11 +19,17 @@ async def list_messages(conv_id: str):
 
         # 메시지 조회
         cursor.execute("""
-            SELECT role, content, created_at
+            SELECT id, conversation_id, role, content, agent, created_at
             FROM messages
             WHERE conversation_id = %s
             ORDER BY created_at ASC
         """, (conv_id,))
         rows = cursor.fetchall()
-        messages = [dict_from_row(r) for r in rows]
+        def to_msg(r):
+            d = dict_from_row(r)
+            created_at = d.get("created_at")
+            if created_at and hasattr(created_at, "isoformat"):
+                d["created_at"] = created_at.isoformat() + "Z"
+            return {**d, "id": str(d["id"]), "conversation_id": str(d["conversation_id"])}
+        messages = [to_msg(r) for r in rows]
         return {"messages": messages}
