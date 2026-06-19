@@ -27,6 +27,12 @@ export default function ProjectMembersModal({ project, currentUserId, onClose }:
   const isOwner = project.my_project_role === 'owner';
 
   useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  useEffect(() => {
     fetchProjectMembers(project.id)
       .then(setMembers)
       .catch(() => showToast('멤버 목록을 불러오지 못했습니다.', 'error'))

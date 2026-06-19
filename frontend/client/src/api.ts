@@ -1,7 +1,7 @@
 import { AuthResponse, Project, ProjectCreateRequest, ProjectMember, ProjectRole, Conversation, Message } from './types';
 import { MOCK_MODE, mockSendMessage, mockFetchMembers, mockAddMember, mockRemoveMember } from './mockData';
 
-const BASE = '';
+const BASE = process.env.REACT_APP_API_BASE ?? '';
 
 // ── 401 핸들러 (토큰 만료 시 자동 로그아웃) ──────────────────
 let onUnauthorized: (() => void) | null = null;
@@ -11,11 +11,15 @@ export function registerUnauthorizedHandler(handler: () => void) {
 }
 
 async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
-  const res = await fetch(url, options);
-  if (res.status === 401) {
-    onUnauthorized?.();
-    throw new Error('UNAUTHORIZED');
+  let res: Response;
+  try {
+    res = await fetch(url, options);
+  } catch {
+    throw new Error('NETWORK_ERROR');
   }
+  if (res.status === 401) { onUnauthorized?.(); throw new Error('UNAUTHORIZED'); }
+  if (res.status === 503)  throw new Error('SERVICE_UNAVAILABLE');
+  if (res.status >= 500)   throw new Error('SERVER_ERROR');
   return res;
 }
 

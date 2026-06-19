@@ -4,12 +4,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f6f8;
+  background: var(--bg-secondary);
 }
 
 .login-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--modal-bg);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 48px 40px 40px;
   width: 100%;
@@ -23,19 +23,19 @@
 .login-logo-text {
   font-size: 32px;
   font-weight: 700;
-  color: #14532d;
+  color: var(--logo-color);
   letter-spacing: -0.5px;
   margin-bottom: 8px;
 }
 
 .login-logo-text span {
-  color: #3a7d44;
+  color: var(--logo-accent);
   font-weight: 400;
 }
 
 .login-subtitle {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-secondary);
   margin: 0 0 32px;
   text-align: center;
 }
@@ -56,19 +56,19 @@
 .login-field label {
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 .login-field input {
   height: 42px;
   padding: 0 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 14px;
-  color: #111827;
+  color: var(--text-primary);
   outline: none;
   transition: border-color 0.15s;
-  background: #fff;
+  background: var(--bg-primary);
 }
 
 .login-field input:focus {
@@ -77,8 +77,8 @@
 }
 
 .login-field input:disabled {
-  background: #f9fafb;
-  color: #9ca3af;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
 }
 
 .login-error {

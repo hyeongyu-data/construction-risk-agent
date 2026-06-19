@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ProjectCreateRequest } from '../types';
 import './ProjectCreateModal.css';
 
@@ -24,6 +24,12 @@ export default function ProjectCreateModal({ onConfirm, onClose }: Props) {
       : '';
 
   const canSubmit = !!form.name.trim() && !!form.site_name.trim() && !dateError;
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

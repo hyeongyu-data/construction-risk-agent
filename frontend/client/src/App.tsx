@@ -12,6 +12,7 @@ import {
   registerUnauthorizedHandler,
 } from './api';
 import { showToast } from './toast';
+import { Settings, loadSettings, saveSettings, applyTheme } from './settings';
 import {
   MOCK_MODE,
   MOCK_PROJECTS, MOCK_QUICK_CONVS, MOCK_PROJECT_CONVS, MOCK_MESSAGES,
@@ -31,10 +32,23 @@ export default function App() {
   const [messages, setMessages]               = useState<Message[]>([]);
   const [sidebarOpen, setSidebarOpen]         = useState(true);
   const [showOpenBtn, setShowOpenBtn]         = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [settings, setSettings]              = useState<Settings>(() => {
+    const s = loadSettings();
+    applyTheme(s.theme);
+    return s;
+  });
+
+  const handleSettingsChange = (s: Settings) => {
+    setSettings(s);
+    saveSettings(s);
+    applyTheme(s.theme);
+  };
 
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
   const initialLoadDoneRef = useRef(false);
+  const messagesCacheRef = useRef<Map<string, Message[]>>(new Map());
 
   const selectProject = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -122,16 +136,18 @@ export default function App() {
       if (cancelled) return;
 
       if (quickResult.status === 'fulfilled') setQuickConvs(quickResult.value);
-      else console.error(quickResult.reason);
+      else showToast('대화 목록을 불러오지 못했습니다.', 'error');
 
       if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value);
-      else console.error(projectsResult.reason);
+      else showToast('프로젝트 목록을 불러오지 못했습니다.', 'error');
 
       if (projectConvsResult.status === 'fulfilled') setProjectConvs(projectConvsResult.value);
-      else console.error(projectConvsResult.reason);
+      else showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error');
 
-      if (messagesResult.status === 'fulfilled') setMessages(messagesResult.value);
-      else console.error(messagesResult.reason);
+      if (messagesResult.status === 'fulfilled') {
+        setMessages(messagesResult.value);
+        if (initConvId) messagesCacheRef.current.set(initConvId, messagesResult.value);
+      } else showToast('메시지를 불러오지 못했습니다.', 'error');
 
       initialLoadDoneRef.current = true;
     }
@@ -151,7 +167,9 @@ export default function App() {
       );
       return;
     }
-    fetchConversations(activeProjectId).then(setProjectConvs).catch(console.error);
+    fetchConversations(activeProjectId)
+      .then(setProjectConvs)
+      .catch(() => showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error'));
   }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 대화 전환 시 메시지 갱신 (초기 로드 제외)
@@ -162,7 +180,16 @@ export default function App() {
       setMessages(MOCK_MESSAGES[activeConvId] ?? []);
       return;
     }
-    fetchMessages(activeConvId).then(setMessages).catch(console.error);
+    const cached = messagesCacheRef.current.get(activeConvId);
+    if (cached) { setMessages(cached); return; }
+    setLoadingMessages(true);
+    fetchMessages(activeConvId)
+      .then(msgs => {
+        setMessages(msgs);
+        messagesCacheRef.current.set(activeConvId, msgs);
+        setLoadingMessages(false);
+      })
+      .catch(() => { showToast('메시지를 불러오지 못했습니다.', 'error'); setLoadingMessages(false); });
   }, [activeConvId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 대화 핸들러 ─────────────────────────────────────────────
@@ -206,6 +233,7 @@ export default function App() {
   const handleQuickDelete = useCallback(async (convId: string) => {
     await deleteConversation(convId);
     setQuickConvs(prev => prev.filter(c => c.id !== convId));
+    messagesCacheRef.current.delete(convId);
     if (activeConvIdRef.current === convId) { selectConv(null); setMessages([]); }
   }, [selectConv]);
 
@@ -288,6 +316,7 @@ export default function App() {
   const handleMessagesUpdate = useCallback((newMessages: Message[]) => {
     setMessages(newMessages);
     const cid = activeConvIdRef.current;
+    if (cid) messagesCacheRef.current.set(cid, newMessages);
     if (!cid) return;
     const firstUser = newMessages.find(m => m.role === 'user');
     if (!firstUser) return;
@@ -325,6 +354,7 @@ export default function App() {
         </button>
       )}
 
+      {sidebarOpen && <div className="sidebar-overlay" onClick={closeSidebar} />}
       <Sidebar
         user={user}
         quickConvs={quickConvs}
@@ -344,15 +374,19 @@ export default function App() {
         onLogout={handleLogout}
         onGoHome={handleGoHome}
         isOpen={sidebarOpen}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
       />
 
       <ChatArea
         convId={activeConvId}
         canWrite={activeConv?.can_write ?? true}
         messages={messages}
+        loadingMessages={loadingMessages}
         onMessagesUpdate={handleMessagesUpdate}
         onNeedConv={handleNeedConv}
         onConvCreated={handleSelectConv}
+        settings={settings}
       />
     </div>
   );

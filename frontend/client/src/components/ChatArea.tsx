@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Message, AgentType } from '../types';
+import { Settings } from '../settings';
 import { sendConvMessage, renameConversation } from '../api';
 import './ChatArea.css';
 
@@ -11,9 +14,11 @@ interface Props {
   convId: string | null;
   canWrite: boolean;
   messages: Message[];
+  loadingMessages: boolean;
   onMessagesUpdate: (messages: Message[]) => void;
   onNeedConv: () => Promise<string>;
   onConvCreated: (id: string) => void;
+  settings: Settings;
 }
 
 // ── 에이전트 메타 ──────────────────────────────
@@ -26,57 +31,21 @@ const AGENT_META: Record<AgentType, { label: string; color: string }> = {
   router:    { label: '라우터',         color: '#64748b' },
 };
 
-// ── Markdown 렌더러 ────────────────────────────
-function parseInline(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
-  let last = 0, m: RegExpExecArray | null;
-  while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[0].startsWith('**')) parts.push(<strong key={m.index}>{m[2]}</strong>);
-    else parts.push(<em key={m.index}>{m[3]}</em>);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
-}
-
-function renderMarkdown(text: string): React.ReactNode[] {
-  const lines = text.split('\n');
-  const result: React.ReactNode[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (/^---+$/.test(line.trim())) { result.push(<hr key={i} className="md-hr"/>); i++; continue; }
-    const h3 = line.match(/^###\s+(.*)/); const h2 = line.match(/^##\s+(.*)/); const h1 = line.match(/^#\s+(.*)/);
-    if (h3) { result.push(<h3 key={i} className="md-h3">{parseInline(h3[1])}</h3>); i++; continue; }
-    if (h2) { result.push(<h2 key={i} className="md-h2">{parseInline(h2[1])}</h2>); i++; continue; }
-    if (h1) { result.push(<h2 key={i} className="md-h2">{parseInline(h1[1])}</h2>); i++; continue; }
-    if (line.trim().startsWith('|') && i+1 < lines.length && lines[i+1].trim().match(/^\|[-| :]+\|$/)) {
-      const tl: string[] = [];
-      while (i < lines.length && lines[i].trim().startsWith('|')) { tl.push(lines[i]); i++; }
-      const headers = tl[0].split('|').filter(c => c.trim() !== '');
-      const rows = tl.slice(2).map(r => r.split('|').filter(c => c.trim() !== ''));
-      result.push(
-        <div key={`t-${i}`} className="md-table-wrap">
-          <table className="md-table">
-            <thead><tr>{headers.map((h,hi) => <th key={hi}>{parseInline(h.trim())}</th>)}</tr></thead>
-            <tbody>{rows.map((row,ri) => <tr key={ri}>{row.map((cell,ci) => <td key={ci}>{parseInline(cell.trim())}</td>)}</tr>)}</tbody>
-          </table>
-        </div>
-      );
-      continue;
-    }
-    const li = line.match(/^[-*]\s+(.*)/);
-    if (li) { result.push(<li key={i} className="md-li">{parseInline(li[1])}</li>); i++; continue; }
-    const bq = line.match(/^>\s+(.*)/);
-    if (bq) { result.push(<blockquote key={i} className="md-bq">{parseInline(bq[1])}</blockquote>); i++; continue; }
-    if (line.trim() === '') { result.push(<div key={i} className="md-gap"/>); i++; continue; }
-    result.push(<p key={i} className="md-p">{parseInline(line)}</p>);
-    i++;
-  }
-  return result;
-}
+// ── Markdown 컴포넌트 ──────────────────────────
+const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>['components'] = {
+  h1: ({ children }) => <h2 className="md-h2">{children}</h2>,
+  h2: ({ children }) => <h2 className="md-h2">{children}</h2>,
+  h3: ({ children }) => <h3 className="md-h3">{children}</h3>,
+  p:  ({ children }) => <p  className="md-p">{children}</p>,
+  li: ({ children }) => <li className="md-li">{children}</li>,
+  hr: () => <hr className="md-hr" />,
+  blockquote: ({ children }) => <blockquote className="md-bq">{children}</blockquote>,
+  table: ({ children }) => <div className="md-table-wrap"><table className="md-table">{children}</table></div>,
+  code: ({ inline, className, children }: any) =>
+    inline
+      ? <code className="md-code-inline">{children}</code>
+      : <pre className="md-pre"><code className={className}>{children}</code></pre>,
+};
 
 function formatTime(iso: string | undefined | null): string {
   if (!iso) return '';
@@ -183,7 +152,31 @@ const AGENT_CARDS = [
 ];
 
 // ── 메인 컴포넌트 ──────────────────────────────
-export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate, onNeedConv, onConvCreated }: Props) {
+const DETAIL_PREFIX: Record<Settings['detail'], string> = {
+  '간략': '[간략하게 핵심만 답변해줘] ',
+  '기본': '',
+  '상세': '[상세하게 자세히 답변해줘] ',
+};
+
+const UNIT_SUFFIX: Record<Settings['unit'], string> = {
+  '원': '',
+  '천원': ' (금액은 천원 단위로 표시해줘)',
+  '만원': ' (금액은 만원 단위로 표시해줘)',
+};
+
+function MessageSkeleton() {
+  return (
+    <div className="skeleton-wrap">
+      {[70, 45, 85, 55, 75].map((w, i) => (
+        <div key={i} className={`skeleton-row ${i % 2 === 0 ? 'left' : 'right'}`}>
+          <div className="skeleton-bubble" style={{ width: `${w}%` }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function ChatArea({ convId, canWrite, messages, loadingMessages, onMessagesUpdate, onNeedConv, onConvCreated, settings }: Props) {
   const [input, setInput]                 = useState('');
   const [loading, setLoading]             = useState(false);
   const [thinkSecs, setThinkSecs]         = useState(0);
@@ -199,7 +192,7 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
   const isNearBottomRef = useRef(true);
   const forceScrollNextRef = useRef(false);
   const pendingInitialScrollRef = useRef(true);
-  const isEmpty     = messages.length === 0 && !loading;
+  const isEmpty     = messages.length === 0 && !loading && !loadingMessages;
 
   const updateScrollState = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -276,8 +269,9 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setLoading(true);
+    const apiContent = DETAIL_PREFIX[settings.detail] + userContent + UNIT_SUFFIX[settings.unit];
     try {
-      const reply = await sendConvMessage(targetConvId, userContent, ctrl.signal);
+      const reply = await sendConvMessage(targetConvId, apiContent, ctrl.signal);
       onMessagesUpdate([...optimisticMessages, reply]);
       if (optimisticMessages.length === 1) {
         const title = userContent.slice(0, 30) + (userContent.length > 30 ? '...' : '');
@@ -287,14 +281,19 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
       if (err instanceof Error && err.name === 'AbortError') {
         // 사용자가 중단함 — 낙관적 메시지만 남기고 에러 표시 안 함
       } else {
-        const errMsg = makeOptimisticMsg('assistant', '오류가 발생했습니다. 서버를 확인해주세요.', targetConvId);
-        onMessagesUpdate([...optimisticMessages, errMsg]);
+        const msg = err instanceof Error ? err.message : '';
+        const text =
+          msg === 'NETWORK_ERROR'        ? '네트워크 연결을 확인해주세요.' :
+          msg === 'SERVICE_UNAVAILABLE'  ? '서비스가 일시적으로 불가합니다. 잠시 후 다시 시도해주세요.' :
+          msg === 'SERVER_ERROR'         ? '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' :
+                                           '오류가 발생했습니다. 서버를 확인해주세요.';
+        onMessagesUpdate([...optimisticMessages, makeOptimisticMsg('assistant', text, targetConvId)]);
       }
     } finally {
       setLoading(false);
       abortRef.current = null;
     }
-  }, [onMessagesUpdate]);
+  }, [onMessagesUpdate, settings]);
 
   const handleRegenerate = useCallback(async () => {
     if (loading || !convId) return;
@@ -432,11 +431,36 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
 
   const lastAssistantIdx = messages.map(m => m.role).lastIndexOf('assistant');
 
+  const handleExport = () => {
+    const lines = messages.map(m => {
+      const role = m.role === 'user' ? '사용자' : `AI (${AGENT_META[m.agent as AgentType]?.label ?? '어시스턴트'})`;
+      return `[${formatTime(m.created_at)}] ${role}\n${m.content}`;
+    }).join('\n\n---\n\n');
+    const blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `대화_${new Date().toLocaleDateString('ko-KR').replace(/\. /g, '-').replace('.', '')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main className="chat-area">
       <div className="messages-wrap">
+        <div className="chat-toolbar">
+          <button className="export-btn" onClick={handleExport} title="대화 내보내기">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            내보내기
+          </button>
+        </div>
         <div className="messages" ref={messagesContainerRef} onScroll={updateScrollState}>
-          {messages.map((msg, i) => (
+          {loadingMessages && <MessageSkeleton />}
+          {!loadingMessages && messages.map((msg, i) => (
             <div key={i} className={`message ${msg.role}`}>
               {msg.role === 'user' ? (
                 <div className="user-msg-wrap">
@@ -454,7 +478,11 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
                   {i === lastAssistantIdx && lastThinkSecs !== null && (
                     <div className="think-label">{lastThinkSecs}초 동안 생각함</div>
                   )}
-                  <div className="assistant-text">{renderMarkdown(msg.content)}</div>
+                  <div className="assistant-text">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
                   <div className="action-bar">
                     <CopyButton text={msg.content}/>
                     {i === lastAssistantIdx && !loading && canWrite && (

@@ -1,14 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { User } from '../types';
+import { Settings, applyTheme } from '../settings';
 import './UserMenu.css';
 
 interface Props {
   user: User;
   onLogout: () => void;
+  settings: Settings;
+  onSettingsChange: (s: Settings) => void;
 }
 
 function ProfileModal({ user, onClose }: { user: User; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
   const fields = [
     { label: '이름',  value: user.name },
     { label: '직급',  value: user.role === 'admin' ? '관리자' : '일반사원' },
@@ -51,15 +60,36 @@ function ProfileModal({ user, onClose }: { user: User; onClose: () => void }) {
   );
 }
 
-function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [detail, setDetail] = useState('기본');
-  const [unit, setUnit]     = useState('원');
-  const [theme, setTheme]   = useState('라이트');
+function SettingsModal({
+  settings, onSettingsChange, onClose,
+}: {
+  settings: Settings;
+  onSettingsChange: (s: Settings) => void;
+  onClose: () => void;
+}) {
+  const [local, setLocal] = useState<Settings>(settings);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const handleChange = (key: keyof Settings, value: string) => {
+    const next = { ...local, [key]: value } as Settings;
+    setLocal(next);
+    if (key === 'theme') applyTheme(next.theme);
+  };
+
+  const handleSave = () => {
+    onSettingsChange(local);
+    onClose();
+  };
 
   const rows = [
-    { label: '응답 상세도',    value: detail,   set: setDetail,  opts: ['간략', '기본', '상세'] },
-    { label: '금액 표시 단위', value: unit,     set: setUnit,    opts: ['원', '천원', '만원'] },
-    { label: '테마',          value: theme,    set: setTheme,   opts: ['라이트', '다크'] },
+    { label: '응답 상세도',    key: 'detail' as const, opts: ['간략', '기본', '상세'] },
+    { label: '금액 표시 단위', key: 'unit'   as const, opts: ['원', '천원', '만원'] },
+    { label: '테마',          key: 'theme'  as const, opts: ['라이트', '다크'] },
   ];
 
   return ReactDOM.createPortal(
@@ -76,24 +106,28 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="um-fields">
-          {rows.map(({ label, value, set, opts }) => (
-            <div key={label} className="um-setting-row">
+          {rows.map(({ label, key, opts }) => (
+            <div key={key} className="um-setting-row">
               <span className="um-label">{label}</span>
-              <select className="um-select" value={value} onChange={e => set(e.target.value)}>
+              <select
+                className="um-select"
+                value={local[key]}
+                onChange={e => handleChange(key, e.target.value)}
+              >
                 {opts.map(o => <option key={o}>{o}</option>)}
               </select>
             </div>
           ))}
         </div>
 
-        <p className="um-notice">설정 기능은 추후 제공 예정입니다.</p>
+        <button className="um-save-btn" onClick={handleSave}>저장</button>
       </div>
     </div>,
     document.body
   );
 }
 
-export default function UserMenu({ user, onLogout }: Props) {
+export default function UserMenu({ user, onLogout, settings, onSettingsChange }: Props) {
   const [menuOpen,      setMenuOpen]      = useState(false);
   const [showProfile,   setShowProfile]   = useState(false);
   const [showSettings,  setShowSettings]  = useState(false);
@@ -156,8 +190,14 @@ export default function UserMenu({ user, onLogout }: Props) {
         )}
       </div>
 
-      {showProfile  && <ProfileModal  user={user} onClose={() => setShowProfile(false)} />}
-      {showSettings && <SettingsModal            onClose={() => setShowSettings(false)} />}
+      {showProfile  && <ProfileModal user={user} onClose={() => setShowProfile(false)} />}
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          onSettingsChange={onSettingsChange}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </>
   );
 }
