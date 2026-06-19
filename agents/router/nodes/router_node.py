@@ -324,32 +324,12 @@ def router_node(state: dict) -> Command:
             goto=END,
         )
 
-    result = classify_question(classify_input)
-    needs_weather = result["needs_weather"]
-    agents = result.get("agents", [])
-    answer_type = result.get("answer_type", "RISK_REPORT" if needs_weather else "COST_REPORT")
-    reason = result.get("reason", "")
+    plan = classify_question(classify_input)
+    needs_weather = plan['needs_weather']
+    # 관련 비용 에이전트(플래너 결정). 비어 있으면 폴백: weather면 장비·인력, 아니면 전체.
+    agents = plan['agents'] or (['equipment', 'labor_cost'] if needs_weather else ['equipment', 'material', 'labor_cost'])
 
-    question_type = 'A' if needs_weather else 'B'
-    print(f'\n[라우터] {"A(기상악화)" if needs_weather else "B(현장변경)"} - {reason}')
-    print(f'[라우터] 실행 에이전트: {agents}')
-
-    # 건설 무관 질문 — 에이전트 호출 없이 바로 종료
-    if not needs_weather and not agents and answer_type in {"CHAT", "RAG_QA"}:
-        log.info(f"router_node: {answer_type} -> synthesize")
-        rag_result = _search_standard_spec_for_rag(latest_query) if answer_type == "RAG_QA" else None
-        return Command(
-            update={
-                'question_type': question_type,
-                'answer_type': answer_type,
-                'needs_weather': False,
-                'target_agents': [],
-                'rag_query_type': rag_result.get("rag_query_type") if rag_result else None,
-                'rag_response': rag_result.get("content") if rag_result else None,
-                'rag_result': rag_result,
-            },
-            goto='synthesize',
-        )
+    print(f'\n[라우터] weather={needs_weather}, agents={agents} — {plan["reason"]}')
 
     if not needs_weather and not agents:
         off_topic = (
@@ -385,13 +365,5 @@ def router_node(state: dict) -> Command:
         goto = [Send(agent, state) for agent in agents]
         goto_names = ', '.join(agents)
 
-    log.info(f"router_node 분기: {question_type} -> {goto_names}")
-    return Command(
-        update={
-            'question_type': question_type,
-            'answer_type': answer_type,
-            'needs_weather': needs_weather,
-            'target_agents': agents,
-        },
-        goto=goto,
-    )
+    log.info(f"router_node 분기: weather={needs_weather} → {goto_names}")
+    return Command(update=update, goto=goto)

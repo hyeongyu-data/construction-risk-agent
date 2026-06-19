@@ -151,28 +151,41 @@ def classify_question(query: str) -> dict:
           "reason": str,
         }
     """
+    """질문을 분석해 실행 계획을 반환한다.
+
+    Returns:
+        {
+          "needs_weather": bool,        # 기상 분석 선행 필요 여부
+          "agents": [<cost agent>...],  # equipment/material/labor_cost 중 관련된 것만
+          "reason": str,
+        }
+    """
     log.debug(f"classify_question 호출 — query={query!r}")
-    rule_result = _classify_by_rule(query)
-    if rule_result:
-        return rule_result
+    prompt = f"""다음 건설 현장 질문을 A 또는 B로 분류하세요.
 
-    prompt = f"""다음 건설 현장 질문을 분석해 실행 계획을 JSON으로 반환하세요.
+질문 타입:
+{_TYPE_DESCRIPTIONS}
 
-[비용 도메인] — 질문에 실제로 관련된 것만 고른다.
-- equipment: 장비 대기비 (크레인·펌프차·타워크레인·굴착기·고소작업대·임대료·장비 대기 등)
-- material: 자재비 (자재 단가·추가 물량·발주·철근·레미콘·H파일 등)
-- labor_cost: 인건비 (노임단가·인부·품셈·직접노무비·인력 투입 등)
+[분류 규칙] — 반드시 아래 순서로 판단한다.
 
-[기상 선행 판단 — needs_weather]
-- true: 비·눈·바람·태풍·한파·폭염 등 기상 사유가 있고, 지연 일수가 아직 확정되지 않아
-  기상 예보를 먼저 확인·추정해야 하는 경우. (예: "내일 비온다는데 확인하고 지연 추측해서 비용 산정")
-  → 기상 분석이 먼저 지연 일수를 산출한 뒤 그 결과로 비용 에이전트가 산정한다.
-- false: 지연 일수가 이미 확정됐거나(예: "3일 대기했다", "이틀째 멈춰 있다") 기상과 무관한 경우.
+규칙 1. 지연 일수/지연 여부를 아직 모르고, 기상 예보를 확인해야 알 수 있는 경우 → A
+  - 미래 기상 이슈를 다루며, 지연 일수를 사용자가 명시하지 않고 "확인하고", "추측해서",
+    "있을 것 같은데", "예상되는" 등 미확정 표현으로 기상청 조회·추정을 요청하는 경우
+  - 비용 산정을 함께 요청했더라도, 지연 일수가 아직 정해지지 않아 기상 분석이 선행되어야 하면 A
+    (기상 에이전트가 예보를 조회해 지연 일수를 산출한 뒤, 그 결과로 장비/인건비 비용까지 자동 산정됨)
+  - 예: "내일 비온다는데 확인하고 지연 일자 추측해서 추가비용 산정해줘" → A
 
-[규칙]
-1. needs_weather=true인데 비용 도메인이 명확하지 않으면 agents=["equipment","labor_cost"] (기상 지연 → 장비·인력 대기).
-2. 어떤 비용 도메인과도 무관하고 기상도 아니면 agents=[] (빈 배열).
-3. 애매하면 관련 가능성이 있는 도메인을 모두 포함한다.
+규칙 2. 비용 산정이 핵심 의도이고, 지연 일수/지연 사실이 이미 확정되어 있는 경우 → B
+  - 장비 대기 비용, 추가 비용, 얼마인가요, 산정해주세요 등이 포함된 경우
+  - 기상 원인이 언급되었더라도 "3일 대기했다", "이틀째 멈춰 있다" 처럼 지연 일수가 이미
+    주어져 있어 기상 예보 확인이 더 필요 없으면 B
+  - 예: "강풍으로 크레인이 2일 대기했는데 비용은요?" → B
+
+규칙 3. 비용 산정 의도 없이 기상 원인만 언급된 경우 → A
+  - 기상 영향 분석, 공정 지연 우려, 기상 리스크 평가가 목적인 경우
+  - 예: "태풍으로 철골 공정이 지연될 것 같습니다" → A
+
+규칙 4. 애매한 경우 기본값은 B
 
 질문: {query}
 
@@ -223,11 +236,16 @@ JSON으로만 응답하세요:
     if needs_weather and not agents:
         agents = list(_WEATHER_DEFAULT_AGENTS)
 
-    log.info(f"분류 결과: needs_weather={needs_weather}, agents={agents} — 근거: {reason}")
-    if "answer_type" not in locals():
-        answer_type = _infer_answer_type(query, needs_weather=needs_weather, agents=agents)
+    # 폴백 보정
+    if needs_weather and not agents:
+        agents = list(_WEATHER_DEFAULT_AGENTS)
 
-    return {"needs_weather": needs_weather, "agents": agents, "answer_type": answer_type, "reason": reason}
+    log.info(f"분류 결과: {question_type} — 근거: {parsed.get('reason', '')}")
+    return {
+        "type": question_type,
+        "type_name": QUESTION_TYPES[question_type]["name"],
+        "reason": parsed.get("reason", ""),
+    }
 
 
 if __name__ == "__main__":
