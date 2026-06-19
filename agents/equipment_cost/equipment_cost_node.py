@@ -196,6 +196,11 @@ JSON 외의 설명 문장은 출력하지 않는다.
 - cost_items에는 category가 "equipment"인 장비 대기비 항목만 넣는다.
   자재비·인건비·기상 등 다른 도메인 비용은 cost_items·total_cost에 절대 포함하지 않는다(중복 합산 금지).
   total_cost는 장비 대기비 항목 합계만 의미한다.
+- [수량(quantity) 규약 — 매우 중요] quantity는 '전체 곱수 = 대기 일수 × 대수'를 담는다(단위 unit="일").
+  예: 1대가 2일 대기 → quantity=2, 2대가 3일 대기 → quantity=6.
+  amount는 반드시 unit_price × rate × quantity 와 정확히 일치해야 한다(반올림 오차 외 불일치 금지).
+  대기 일수를 formula 문자열에만 적고 quantity=1로 두지 말 것. calculate_standby_cost 결과(amount)와
+  quantity·rate·unit_price가 산술적으로 맞아떨어지도록 작성한다.
 - 직전 대화에 다른 에이전트의 통합 리포트가 있어도 그것을 베끼지 말고, 장비 대기비만 새로 산정한다.
 """)
 

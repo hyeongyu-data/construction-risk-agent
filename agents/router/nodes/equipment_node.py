@@ -202,15 +202,22 @@ _MAX_REVIEW_RETRIES = 1
 
 
 def _amount_mismatch(item: dict) -> bool:
-    """장비 항목 산식(amount ≈ unit_price × rate × quantity) 정합성 검사. 환각/오계산 탐지."""
+    """장비 항목 산식(amount = unit_price × rate × quantity) 정합성 검사. 환각/오계산 탐지.
+
+    quantity는 '전체 곱수(대기 일수 × 대수)'를 담는 규약이므로(프롬프트에서 강제),
+    amount는 unit_price × rate × quantity와 일치해야 한다. 반올림은 1% 허용.
+    일치하지 않으면(자릿수 오류·정수배 환각 포함) 모두 환각·오계산으로 판정한다.
+    """
     up, amt = item.get("unit_price"), item.get("amount")
     if not (isinstance(up, (int, float)) and isinstance(amt, (int, float))):
         return False
-    qty = item.get("quantity")
-    qty = qty if isinstance(qty, (int, float)) else 1
     rate = item.get("rate")
     rate = rate if isinstance(rate, (int, float)) else 1
+    qty = item.get("quantity")
+    qty = qty if isinstance(qty, (int, float)) else 1
     expected = up * rate * qty
+    if expected <= 0:
+        return False
     return abs(amt - expected) > max(1.0, abs(expected) * 0.01)
 
 

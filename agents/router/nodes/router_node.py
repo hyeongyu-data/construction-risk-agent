@@ -326,10 +326,11 @@ def router_node(state: dict) -> Command:
 
     plan = classify_question(classify_input)
     needs_weather = plan['needs_weather']
+    answer_type = plan.get('answer_type', 'COST_REPORT')
     # 관련 비용 에이전트(플래너 결정). 비어 있으면 폴백: weather면 장비·인력, 아니면 전체.
     agents = plan['agents'] or (['equipment', 'labor_cost'] if needs_weather else ['equipment', 'material', 'labor_cost'])
 
-    print(f'\n[라우터] weather={needs_weather}, agents={agents} — {plan["reason"]}')
+    print(f'\n[라우터] weather={needs_weather}, agents={agents}, answer_type={answer_type} — {plan["reason"]}')
 
     if not needs_weather and not agents:
         off_topic = (
@@ -344,7 +345,7 @@ def router_node(state: dict) -> Command:
         log.info("router_node: 건설 무관 질문 -> 즉시 종료")
         return Command(
             update={
-                'question_type': question_type,
+                'question_type': None,
                 'answer_type': 'CHAT',
                 'needs_weather': False,
                 'target_agents': [],
@@ -358,10 +359,20 @@ def router_node(state: dict) -> Command:
     if not agents:
         agents = ['equipment', 'labor_cost'] if needs_weather else ['equipment', 'material', 'labor_cost']
 
+    # 상태 업데이트(하위호환 question_type A/B + 신규 answer_type/target_agents)
+    update = {
+        'question_type': 'A' if needs_weather else 'B',
+        'answer_type': answer_type,
+        'needs_weather': needs_weather,
+        'target_agents': agents,
+    }
+
     if needs_weather:
+        # 기상 선행: weather가 리스크·지연을 산출한 뒤 계획된 비용 에이전트로 핸드오프.
         goto = 'weather'
         goto_names = f'weather -> {agents}'
     else:
+        # 기상 불필요: 계획된 비용 에이전트만 병렬 실행.
         goto = [Send(agent, state) for agent in agents]
         goto_names = ', '.join(agents)
 

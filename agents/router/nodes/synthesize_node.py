@@ -456,44 +456,7 @@ def _build_few_shot(query: str, k: int = 1) -> str:
     )
 
 
-def _synthesis_prompt(query: str, question_type: str, responses: dict) -> str:
-    sections = "\n\n".join(f"[{label} 응답]\n{text}" for label, text in responses.items())
-
-    weather_note = ""
-    if question_type == 'A' and '기상 에이전트' in responses:
-        weather_note = (
-            "[기상 에이전트] 응답은 JSON 형식의 기상 리스크 분석 결과입니다. "
-            "이를 위험도/작업 중단 필요 여부/지연일수 등을 풀어쓴 배경 설명으로 사용하고, "
-            "장비/인건비 에이전트가 그 지연 때문에 산정한 비용 결과를 함께 안내하세요.\n\n"
-        )
-
-    return f"""당신은 건설 현장 리스크/비용 산정 요청에 대해 여러 전문 에이전트가 각자 답한 내용을
-하나의 최종 답변으로 정리하는 역할입니다.
-
-[사용자 질문]
-{query}
-
-{weather_note}{sections}
-
-규칙:
-- 사용자 질문과 실제로 관련된 답변만 골라 정리하세요.
-- "이 질문은 제 도메인이 아닙니다" 류의 무관한 거절 응답은 결과에 포함하지 마세요.
-- 관련 답변이 여러 개면(예: 장비+인건비 둘 다 관련) 모두 통합해서 하나의 답변으로 작성하세요.
-- 모든 에이전트가 무관하다고 판단했다면, 어떤 종류의 질문이면 도움을 줄 수 있는지 간단히 안내하세요.
-- JSON 필드명을 그대로 노출하지 말고 자연스러운 문장으로 작성하세요.
-- 숫자/금액은 원본 그대로 정확히 인용하세요.
-- 불필요한 서론 없이 바로 본문 작성하세요.
-
-[부족 정보·재질문 처리 — 매우 중요]
-- 관련 있는 에이전트가 "status": "MISSING_INFO"이거나, 계산을 위해 추가 정보가 필요하다고 했거나, 되묻는 질문을 했다면,
-  그 내용을 절대 누락하지 말고 최종 답변 끝에 "확인이 필요한 사항" 항목으로 모아 명확히 표면화하세요.
-- 어떤 정보가 있어야 산정을 마칠 수 있는지(예: 공사 수량, 규격, 대기일수, 인정률 등)를 구체적인 질문 형태로 사용자에게 한 번에 물어보세요.
-- 일부만 계산됐다면(PARTIAL) 계산된 부분은 먼저 제시하고, 나머지는 위 "확인이 필요한 사항"으로 안내하세요.
-- 단, 에이전트가 [A]/[B]/[C] 같은 내부 선택지나 시스템 용어를 그대로 노출했다면, 그 형식은 따르지 말고
-  사용자가 이해할 자연스러운 질문으로 바꿔 쓰세요."""
-
-
-def _fallback(responses: dict) -> str:
+def _fallback(answer_type: str, query: str, responses: dict, parts: dict) -> str:
     """LLM 호출이 실패했을 때의 규칙 기반 합성."""
     relevant = {k: v for k, v in responses.items() if v and not _looks_irrelevant(v)}
     if not relevant:

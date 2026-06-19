@@ -255,15 +255,15 @@ JSON으로만 응답하세요:
     if needs_weather and not agents:
         agents = list(_WEATHER_DEFAULT_AGENTS)
 
-    # 폴백 보정
-    if needs_weather and not agents:
-        agents = list(_WEATHER_DEFAULT_AGENTS)
-
-    log.info(f"분류 결과: {question_type} — 근거: {parsed.get('reason', '')}")
+    log.info(
+        f"분류 결과: needs_weather={needs_weather}, agents={agents}, "
+        f"answer_type={answer_type} — 근거: {reason}"
+    )
     return {
-        "type": question_type,
-        "type_name": QUESTION_TYPES[question_type]["name"],
-        "reason": parsed.get("reason", ""),
+        "needs_weather": needs_weather,
+        "agents": agents,
+        "answer_type": answer_type,
+        "reason": reason,
     }
 
 
