@@ -25,6 +25,7 @@ interface Props {
   onLogout: () => void;
   onGoHome: () => void;
   isOpen: boolean;
+  loadingProjectConvs: boolean;
   settings: Settings;
   onSettingsChange: (s: Settings) => void;
 }
@@ -79,12 +80,29 @@ function ConvItem({
   );
 }
 
+function ConvSkeleton() {
+  return (
+    <div className="conv-skeleton-list">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="conv-skeleton-item">
+          <div className="conv-skeleton-icon" />
+          <div className="conv-skeleton-lines">
+            <div className="conv-skeleton-title" style={{ width: `${55 + i * 12}%` }} />
+            <div className="conv-skeleton-sub" style={{ width: `${30 + i * 8}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Sidebar({
   user, quickConvs, projects, activeProjectId, projectConvs, activeConvId,
   onQuickNew, onQuickDelete, onSelectConversation,
   onSelectProject, onCreateProject, onDeleteProject,
   onCreateProjectConv, onDeleteProjectConv,
   onClose, onLogout, onGoHome, isOpen,
+  loadingProjectConvs,
   settings, onSettingsChange,
 }: Props) {
   const [projectsOpen, setProjectsOpen]       = useState(true);
@@ -266,20 +284,26 @@ export default function Sidebar({
                       </svg>
                       새 대화
                     </button>
-                    {filteredProjectConvs.map(conv => (
-                      <ConvItem
-                        key={conv.id}
-                        conv={conv}
-                        isActive={activeConvId === conv.id}
-                        onSelect={() => onSelectConversation(conv.id)}
-                        onDelete={conv.can_write ? () => onDeleteProjectConv(conv.id) : null}
-                        showOwner
-                      />
-                    ))}
-                    {filteredProjectConvs.length === 0 && (
-                      <p className="empty-hint" style={{ paddingLeft: 8 }}>
-                        {q ? '검색 결과가 없습니다' : '대화가 없습니다'}
-                      </p>
+                    {loadingProjectConvs ? (
+                      <ConvSkeleton />
+                    ) : (
+                      <>
+                        {filteredProjectConvs.map(conv => (
+                          <ConvItem
+                            key={conv.id}
+                            conv={conv}
+                            isActive={activeConvId === conv.id}
+                            onSelect={() => onSelectConversation(conv.id)}
+                            onDelete={conv.can_write ? () => onDeleteProjectConv(conv.id) : null}
+                            showOwner
+                          />
+                        ))}
+                        {filteredProjectConvs.length === 0 && (
+                          <p className="empty-hint" style={{ paddingLeft: 8 }}>
+                            {q ? '검색 결과가 없습니다' : '대화가 없습니다'}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

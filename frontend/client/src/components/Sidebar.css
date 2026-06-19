@@ -372,6 +372,37 @@
 }
 .new-proj-conv-btn:hover { background-color: var(--bg-tertiary); border-color: #3a7d44; color: #3a7d44; }
 
+/* ── 대화 목록 스켈레톤 ── */
+@keyframes shimmer {
+  0%   { opacity: 0.45; }
+  50%  { opacity: 0.2; }
+  100% { opacity: 0.45; }
+}
+.conv-skeleton-list { padding: 2px 0; }
+.conv-skeleton-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+.conv-skeleton-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--text-muted);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.conv-skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.conv-skeleton-title,
+.conv-skeleton-sub {
+  height: 9px;
+  border-radius: 4px;
+  background: var(--text-muted);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.conv-skeleton-sub { animation-delay: 0.2s; }
+
 /* ── 대화 아이템 내부 레이아웃 ── */
 .conv-item-inner {
   display: flex;

@@ -45,10 +45,13 @@ export default function App() {
     applyTheme(s.theme);
   };
 
+  const [loadingProjectConvs, setLoadingProjectConvs] = useState(false);
+
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
   const initialLoadDoneRef = useRef(false);
   const messagesCacheRef = useRef<Map<string, Message[]>>(new Map());
+  const projectConvsCacheRef = useRef<Map<string, Conversation[]>>(new Map());
 
   const selectProject = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -141,8 +144,10 @@ export default function App() {
       if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value);
       else showToast('프로젝트 목록을 불러오지 못했습니다.', 'error');
 
-      if (projectConvsResult.status === 'fulfilled') setProjectConvs(projectConvsResult.value);
-      else showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error');
+      if (projectConvsResult.status === 'fulfilled') {
+        setProjectConvs(projectConvsResult.value);
+        if (initProjectId) projectConvsCacheRef.current.set(initProjectId, projectConvsResult.value);
+      } else showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error');
 
       if (messagesResult.status === 'fulfilled') {
         setMessages(messagesResult.value);
@@ -167,9 +172,16 @@ export default function App() {
       );
       return;
     }
+    const cached = projectConvsCacheRef.current.get(activeProjectId);
+    if (cached) { setProjectConvs(cached); return; }
+    setLoadingProjectConvs(true);
     fetchConversations(activeProjectId)
-      .then(setProjectConvs)
-      .catch(() => showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error'));
+      .then(convs => {
+        setProjectConvs(convs);
+        projectConvsCacheRef.current.set(activeProjectId, convs);
+      })
+      .catch(() => showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error'))
+      .finally(() => setLoadingProjectConvs(false));
   }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 대화 전환 시 메시지 갱신 (초기 로드 제외)
@@ -271,6 +283,7 @@ export default function App() {
     try {
       await deleteProject(projectId);
       setProjects(prev => prev.filter(p => p.id !== projectId));
+      projectConvsCacheRef.current.delete(projectId);
       if (activeProjectId === projectId) {
         selectProject(null);
         setProjectConvs([]);
@@ -293,7 +306,11 @@ export default function App() {
     }
     try {
       const conv = await createConversation(activeProjectId);
-      setProjectConvs(prev => [conv, ...prev]);
+      setProjectConvs(prev => {
+        const next = [conv, ...prev];
+        projectConvsCacheRef.current.set(activeProjectId, next);
+        return next;
+      });
       selectConv(conv.id);
       setMessages([]);
     } catch {
@@ -309,9 +326,13 @@ export default function App() {
 
   const handleDeleteProjectConv = useCallback(async (convId: string) => {
     await deleteConversation(convId);
-    setProjectConvs(prev => prev.filter(c => c.id !== convId));
+    setProjectConvs(prev => {
+      const next = prev.filter(c => c.id !== convId);
+      if (activeProjectId) projectConvsCacheRef.current.set(activeProjectId, next);
+      return next;
+    });
     if (activeConvIdRef.current === convId) { selectConv(null); setMessages([]); }
-  }, [selectConv]);
+  }, [activeProjectId, selectConv]);
 
   const handleMessagesUpdate = useCallback((newMessages: Message[]) => {
     setMessages(newMessages);
@@ -322,7 +343,11 @@ export default function App() {
     if (!firstUser) return;
     const title = firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '');
     setQuickConvs(prev => prev.map(c => c.id === cid ? { ...c, title } : c));
-    setProjectConvs(prev => prev.map(c => c.id === cid ? { ...c, title } : c));
+    setProjectConvs(prev => {
+      const next = prev.map(c => c.id === cid ? { ...c, title } : c);
+      if (activeProjectId) projectConvsCacheRef.current.set(activeProjectId, next);
+      return next;
+    });
   }, []);
 
   const handleSelectConv = useCallback((id: string) => {
@@ -374,6 +399,7 @@ export default function App() {
         onLogout={handleLogout}
         onGoHome={handleGoHome}
         isOpen={sidebarOpen}
+        loadingProjectConvs={loadingProjectConvs}
         settings={settings}
         onSettingsChange={handleSettingsChange}
       />
