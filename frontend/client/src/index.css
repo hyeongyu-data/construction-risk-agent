@@ -13,18 +13,24 @@
 }
 
 [data-theme="dark"] {
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #242424;
-  --bg-tertiary: #303030;
-  --border-color: #3a3a3a;
-  --border-light: #2c2c2c;
-  --text-primary: #e8e8e8;
-  --text-secondary: #a0a0a0;
-  --text-muted: #606060;
-  --modal-bg: #2a2a2a;
+  --bg-primary: #25262a;
+  --bg-secondary: #2e2f33;
+  --bg-tertiary: #3a3b40;
+  --border-color: #46474d;
+  --border-light: #3a3b40;
+  --text-primary: #e2e3e8;
+  --text-secondary: #a0a2aa;
+  --text-muted: #65666e;
+  --modal-bg: #2e2f33;
   --send-btn-bg: #3a7d44;
   --send-btn-color: #ffffff;
 }
+
+/* ── 스크롤바 ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 * {
   margin: 0;
