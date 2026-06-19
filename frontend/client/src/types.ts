@@ -31,9 +31,11 @@ export interface StructuredResponse {
   answer_type?: AnswerType;
   message?: string;
   summary?: {
-    total_extra_cost?: number | string | null;
+    total_additional_cost?: number | string | null;
+    total_extra_cost?: number | string | null;   // 구버전 호환
     risk_level?: string | null;
-    delay_days?: number | string | null;
+    expected_delay?: number | string | null;
+    delay_days?: number | string | null;          // 구버전 호환
     main_cause?: string | null;
     [key: string]: unknown;
   };

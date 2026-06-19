@@ -168,9 +168,9 @@ function StructuredResponseCard({ data, fallback }: { data?: StructuredResponse 
 
       {(answerType === 'COST_REPORT' || answerType === 'RISK_REPORT') && (
         <div className="summary-grid">
-          <div><span>총 추가비용</span><strong>{displayValue(summary.total_extra_cost)}</strong></div>
+          <div><span>총 추가비용</span><strong>{displayValue(summary.total_additional_cost ?? summary.total_extra_cost)}</strong></div>
           <div><span>리스크 수준</span><strong>{displayValue(summary.risk_level)}</strong></div>
-          <div><span>예상 지연</span><strong>{displayValue(summary.delay_days)}</strong></div>
+          <div><span>예상 지연</span><strong>{displayValue(summary.expected_delay ?? summary.delay_days)}</strong></div>
           <div><span>주요 원인</span><strong>{displayValue(summary.main_cause)}</strong></div>
         </div>
       )}

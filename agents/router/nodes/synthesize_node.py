@@ -220,6 +220,48 @@ def _collect_responses(state: dict) -> dict[str, str]:
     return responses
 
 
+_RISK_LEVEL_MAP = {"LOW": "낮음", "MEDIUM": "중간", "HIGH": "높음"}
+
+
+def _parse_weather_response(state: dict, parts: dict) -> None:
+    """weather_response JSON 문자열에서 risk_level / expected_delay를 추출한다."""
+    weather_str = state.get("weather_response")
+    if not weather_str:
+        return
+    try:
+        weather_data = json.loads(weather_str) if isinstance(weather_str, str) else weather_str
+        risk_result = weather_data.get("risk_result") or {}
+        raw_level = str(risk_result.get("risk_level") or "").upper()
+        if raw_level in _RISK_LEVEL_MAP and parts["risk_level"] is None:
+            parts["risk_level"] = _RISK_LEVEL_MAP[raw_level]
+        if parts["expected_delay"] is None:
+            delay = (
+                risk_result.get("delay_policy", {}).get("minimum_delay_days")
+                or risk_result.get("delay_day_equivalent")
+            )
+            if delay is not None:
+                parts["expected_delay"] = f"{int(delay)}일"
+            elif raw_level == "LOW":
+                parts["expected_delay"] = "0일"
+    except Exception:
+        pass
+
+
+def _derive_main_cause(state: dict, parts: dict) -> None:
+    """에이전트 summary 텍스트들을 합쳐 main_cause를 유추한다."""
+    if parts["main_cause"] is not None:
+        return
+    causes = []
+    for key in ("material_result", "labor_cost_result", "equipment_result"):
+        result = state.get(key)
+        if isinstance(result, dict):
+            summary = result.get("summary") or ""
+            if summary and not any(m in summary for m in _IRRELEVANT_MARKERS):
+                causes.append(summary)
+    if causes:
+        parts["main_cause"] = " / ".join(causes)
+
+
 def _collect_structured_parts(state: dict) -> dict:
     parts = {
         "cost_breakdown": [],
@@ -233,9 +275,9 @@ def _collect_structured_parts(state: dict) -> dict:
         "rag_search_query": None,
         "rag_distance": None,
         "rag_items": [],
-        "total_extra_cost": None,
+        "total_additional_cost": None,
         "risk_level": None,
-        "delay_days": None,
+        "expected_delay": None,
         "main_cause": None,
     }
 
@@ -282,7 +324,8 @@ def _collect_structured_parts(state: dict) -> dict:
 
         for source_key, target_key in (
             ("risk_level", "risk_level"),
-            ("delay_days", "delay_days"),
+            ("expected_delay", "expected_delay"),
+            ("delay_days", "expected_delay"),
             ("main_cause", "main_cause"),
             ("cause", "main_cause"),
         ):
@@ -290,7 +333,19 @@ def _collect_structured_parts(state: dict) -> dict:
                 parts[target_key] = result.get(source_key)
 
     if total_candidates:
-        parts["total_extra_cost"] = sum(total_candidates)
+        parts["total_additional_cost"] = sum(total_candidates)
+
+    # weather_response 문자열 파싱 (weather_result가 state에 없기 때문에 별도 처리)
+    _parse_weather_response(state, parts)
+
+    # 날씨 에이전트 미실행(맑음 등) 시 기본값
+    if parts["risk_level"] is None and not state.get("weather_response"):
+        parts["risk_level"] = "낮음"
+    if parts["expected_delay"] is None and not state.get("weather_response"):
+        parts["expected_delay"] = "0일"
+
+    # main_cause 유추
+    _derive_main_cause(state, parts)
 
     return parts
 
@@ -346,9 +401,9 @@ def _format_structured_parts(parts: dict) -> str:
             "rag_distance": parts["rag_distance"],
             "rag_items": parts["rag_items"],
             "summary": {
-                "total_extra_cost": parts["total_extra_cost"],
+                "total_additional_cost": parts["total_additional_cost"],
                 "risk_level": parts["risk_level"],
-                "delay_days": parts["delay_days"],
+                "expected_delay": parts["expected_delay"],
                 "main_cause": parts["main_cause"],
             },
         },
@@ -429,10 +484,32 @@ def _synthesis_prompt(query: str, answer_type: str, question_type: str, response
 사용자에게 보여줄 자연어 답변만 작성하세요."""
 
 
+def _clean_incomplete_markdown(text: str) -> str:
+    """토큰 한도 잘림으로 생긴 불완전 마크다운을 제거한다.
+
+    예: "**부가" → 제거, 줄 중간에 닫히지 않은 ** 제거.
+    """
+    lines = text.splitlines()
+    cleaned = []
+    for line in lines:
+        # 닫히지 않은 ** 마커만 있는 줄 또는 ** 로 시작하고 닫히지 않은 줄 제거
+        bold_count = line.count("**")
+        if bold_count % 2 != 0:
+            # 홀수개 ** → 마지막 ** 이후 잘린 것으로 판단, 그 ** 이후를 제거
+            idx = line.rfind("**")
+            line = line[:idx].rstrip()
+        if line.strip():
+            cleaned.append(line)
+        elif cleaned and cleaned[-1]:  # 빈 줄은 하나만 유지
+            cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def _call_llm(prompt: str) -> str:
     response = _llm.invoke([HumanMessage(content=prompt)])
     text = response.content.strip()
-    return re.sub(r'^```(?:markdown)?\s*|\s*```$', '', text, flags=re.MULTILINE).strip()
+    text = re.sub(r'^```(?:markdown)?\s*|\s*```$', '', text, flags=re.MULTILINE).strip()
+    return _clean_incomplete_markdown(text)
 
 
 def _build_few_shot(query: str, k: int = 1) -> str:
@@ -471,9 +548,9 @@ def _build_structured_response(answer_type: str, final_response: str, parts: dic
         "answer_type": answer_type,
         "message": final_response,
         "summary": {
-            "total_extra_cost": parts["total_extra_cost"],
+            "total_additional_cost": parts["total_additional_cost"],
             "risk_level": parts["risk_level"],
-            "delay_days": parts["delay_days"],
+            "expected_delay": parts["expected_delay"],
             "main_cause": parts["main_cause"],
         },
         "cost_breakdown": parts["cost_breakdown"],

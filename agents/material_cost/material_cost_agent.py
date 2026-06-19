@@ -102,6 +102,23 @@ JSON 외의 설명 문장은 출력하지 않는다.
   ]
 }
 
+[계약 유형별 비용 계산 규칙 — 반드시 준수할 것]
+고정단가 계약 (contract_type="고정단가"):
+  - cost_items[].unit_price = 계약단가 (contract_unit_price)
+  - cost_items[].amount = 계약단가 × 수량 (예: 8,000 × 200 = 1,600,000)
+  - total_cost = cost_items amount의 합계 (계약단가 기준 금액)
+  - 현재단가와 계약단가의 차액(예: (8,700-8,000)×200 = 140,000)은 amount와 total_cost에 절대 포함하지 않는다.
+  - 차액은 assumptions 배열에 "현재단가(8,700원) - 계약단가(8,000원) = 700원/㎡ 차액, 200㎡ 기준 140,000원 (고정단가 계약이므로 정산 미반영, 참고용)" 형식으로만 기록한다.
+
+시가연동 계약 (contract_type="시가연동"):
+  - cost_items[].unit_price = 현재단가 (current_unit_price)
+  - cost_items[].amount = 현재단가 × 수량
+  - total_cost = 현재단가 기준 금액
+
+계약단가가 사용자 메시지에 명시된 경우:
+  - search_contract_price Tool 없이도 사용자가 제공한 계약단가를 그대로 사용한다.
+  - calculate_quantity_change_cost의 contract_unit_price에 사용자가 명시한 계약단가를 전달한다.
+
 [JSON 작성 규칙]
 - 계산이 가능하면 status는 "CALCULATED"로 설정한다.
 - 일부 자재만 계산 가능하면 status는 "PARTIAL"로 설정한다.
@@ -111,8 +128,8 @@ JSON 외의 설명 문장은 출력하지 않는다.
 - missing_fields, assumptions, excluded_items, warnings, evidence는 항상 배열로 작성한다.
 - excluded_items에 "인건비", "장비비", "이윤", "부가세"를 포함한다.
 - Tool 결과에 없는 단가는 절대 임의로 사용하지 않는다.
-- search_contract_price Tool이 없거나 계약단가를 찾지 못한 경우 warnings에 "계약단가 DB 미연동 또는 조회 실패"를 포함한다.
-- 계약단가를 사용하지 못한 경우 contract_unit_price는 null로 작성하고, 현재 조달청 단가 기준 금액만 계산한다.
+- search_contract_price Tool이 없거나 계약단가를 찾지 못한 경우에도, 사용자가 계약단가를 직접 제공했으면 그 값을 사용한다.
+- 계약단가를 사용하지 못한 경우에만 contract_unit_price는 null로 작성하고, 현재 조달청 단가 기준 금액만 계산한다.
 """)
 
 
