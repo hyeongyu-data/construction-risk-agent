@@ -268,8 +268,13 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
       if (err instanceof Error && err.name === 'AbortError') {
         // 사용자가 중단함 — 낙관적 메시지만 남기고 에러 표시 안 함
       } else {
-        const errMsg = makeOptimisticMsg('assistant', '오류가 발생했습니다. 서버를 확인해주세요.', targetConvId);
-        onMessagesUpdate([...optimisticMessages, errMsg]);
+        const msg = err instanceof Error ? err.message : '';
+        const text =
+          msg === 'NETWORK_ERROR'        ? '네트워크 연결을 확인해주세요.' :
+          msg === 'SERVICE_UNAVAILABLE'  ? '서비스가 일시적으로 불가합니다. 잠시 후 다시 시도해주세요.' :
+          msg === 'SERVER_ERROR'         ? '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' :
+                                           '오류가 발생했습니다. 서버를 확인해주세요.';
+        onMessagesUpdate([...optimisticMessages, makeOptimisticMsg('assistant', text, targetConvId)]);
       }
     } finally {
       setLoading(false);

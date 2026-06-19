@@ -134,16 +134,16 @@ export default function App() {
       if (cancelled) return;
 
       if (quickResult.status === 'fulfilled') setQuickConvs(quickResult.value);
-      else console.error(quickResult.reason);
+      else showToast('대화 목록을 불러오지 못했습니다.', 'error');
 
       if (projectsResult.status === 'fulfilled') setProjects(projectsResult.value);
-      else console.error(projectsResult.reason);
+      else showToast('프로젝트 목록을 불러오지 못했습니다.', 'error');
 
       if (projectConvsResult.status === 'fulfilled') setProjectConvs(projectConvsResult.value);
-      else console.error(projectConvsResult.reason);
+      else showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error');
 
       if (messagesResult.status === 'fulfilled') setMessages(messagesResult.value);
-      else console.error(messagesResult.reason);
+      else showToast('메시지를 불러오지 못했습니다.', 'error');
 
       initialLoadDoneRef.current = true;
     }
@@ -163,7 +163,9 @@ export default function App() {
       );
       return;
     }
-    fetchConversations(activeProjectId).then(setProjectConvs).catch(console.error);
+    fetchConversations(activeProjectId)
+      .then(setProjectConvs)
+      .catch(() => showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error'));
   }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 대화 전환 시 메시지 갱신 (초기 로드 제외)
@@ -174,7 +176,9 @@ export default function App() {
       setMessages(MOCK_MESSAGES[activeConvId] ?? []);
       return;
     }
-    fetchMessages(activeConvId).then(setMessages).catch(console.error);
+    fetchMessages(activeConvId)
+      .then(setMessages)
+      .catch(() => showToast('메시지를 불러오지 못했습니다.', 'error'));
   }, [activeConvId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 대화 핸들러 ─────────────────────────────────────────────
