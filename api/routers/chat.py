@@ -146,6 +146,12 @@ def chat(conv_id: str, req: ChatRequest, current_user: dict = Depends(get_curren
             now,
         ))
 
+        # 대화 updated_at 갱신 (사이드바 정렬용)
+        cursor.execute(
+            "UPDATE conversations SET updated_at = %s WHERE id = %s",
+            (now, conv_id),
+        )
+
         conn.commit()
 
         return {

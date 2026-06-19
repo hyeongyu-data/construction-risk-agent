@@ -1,7 +1,7 @@
 """Conversations 라우터"""
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from api.database import get_db_cursor, dict_from_row
@@ -53,7 +53,7 @@ async def create_quick_conversation(
 ):
     """빠른 질문 대화 생성"""
     conv_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     with get_db_cursor() as (cursor, conn):
         cursor.execute("""
@@ -133,7 +133,7 @@ async def create_project_conversation(
             raise HTTPException(status_code=403, detail="프로젝트 멤버만 대화를 생성할 수 있습니다")
 
         conv_id = str(uuid.uuid4())
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cursor.execute("""
             INSERT INTO conversations (id, project_id, owner_id, title, visibility, created_at, updated_at)
             VALUES (%s, %s, %s, %s, 'project_shared', %s, %s)
@@ -171,7 +171,7 @@ async def update_conversation(
         if str(dict_from_row(row)["owner_id"]) != current_user["user_id"]:
             raise HTTPException(status_code=403, detail="권한이 없습니다")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cursor.execute("""
             UPDATE conversations SET title = %s, updated_at = %s WHERE id = %s
             RETURNING id, title

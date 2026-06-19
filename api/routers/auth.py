@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from api.database import get_db_cursor, dict_from_row
-from api.models import LoginRequest, AuthResponse, UserResponse
+from api.models import RegisterRequest, LoginRequest, AuthResponse, UserResponse
 from api.security import (
     hash_password,
     verify_password,
@@ -11,6 +11,38 @@ from api.security import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+async def register(req: RegisterRequest):
+    """회원가입"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT id FROM users WHERE email = %s", (req.email,))
+        if cursor.fetchone():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="이미 등록된 이메일입니다",
+            )
+
+        import uuid
+        user_id = str(uuid.uuid4())
+        hashed = hash_password(req.password)
+
+        cursor.execute(
+            "INSERT INTO users (id, name, email, password_hash, role) VALUES (%s, %s, %s, %s, %s)",
+            (user_id, req.name, req.email, hashed, "user"),
+        )
+        conn.commit()
+
+        access_token = create_access_token(data={"user_id": user_id, "role": "user"})
+
+        return AuthResponse(
+            user_id=user_id,
+            name=req.name,
+            email=req.email,
+            role="user",
+            token=access_token,
+        )
 
 
 @router.post("/login", response_model=AuthResponse)

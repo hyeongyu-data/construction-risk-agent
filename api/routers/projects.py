@@ -1,7 +1,7 @@
 """Projects 라우터 (프로젝트 관리, 권한 체크 포함)"""
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from typing import Optional
 
@@ -101,7 +101,7 @@ async def create_project(req: ProjectCreate, current_user: dict = Depends(get_cu
         )
 
     project_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     with get_db_cursor() as (cursor, conn):
         # 프로젝트 생성
@@ -201,7 +201,7 @@ async def update_project(
             )
 
         # 프로젝트 수정
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         cursor.execute("""
             UPDATE projects SET
                 name = %s,
@@ -295,7 +295,7 @@ async def add_project_member(
             raise HTTPException(status_code=409, detail="이미 프로젝트에 참여 중인 사용자입니다")
 
         member_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         cursor.execute("""
             INSERT INTO project_members (id, project_id, user_id, project_role, created_at)
             VALUES (%s, %s, %s, %s, %s)
