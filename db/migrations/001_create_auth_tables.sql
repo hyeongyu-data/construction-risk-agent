@@ -22,6 +22,6 @@ CREATE TABLE IF NOT EXISTS project_members (
 );
 
 -- 인덱스
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_project_members_project_id ON project_members(project_id);
-CREATE INDEX idx_project_members_user_id ON project_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_project_members_project_id ON project_members(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_members_user_id ON project_members(user_id);

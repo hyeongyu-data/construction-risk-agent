@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, AgentType } from '../types';
+import { Message, AgentType, StructuredResponse } from '../types';
 import { Settings } from '../settings';
 import { sendConvMessage, renameConversation } from '../api';
 import './ChatArea.css';
@@ -78,6 +78,112 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ── 에이전트 카드 아이콘 ───────────────────────
+function displayValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'number') return value.toLocaleString('ko-KR');
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value);
+}
+
+function itemLabel(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (!item || typeof item !== 'object') return displayValue(item);
+  const record = item as Record<string, unknown>;
+  return displayValue(
+    record.content ??
+    record.field ??
+    record.item ??
+    record.item_name ??
+    record.document ??
+    record.source ??
+    record.detail ??
+    record.name ??
+    record.agent
+  );
+}
+
+function StructuredList({ title, items }: { title: string; items?: unknown[] }) {
+  const visible = (items ?? []).filter(Boolean).slice(0, 6);
+  if (visible.length === 0) return null;
+  return (
+    <div className="report-section">
+      <h4>{title}</h4>
+      <ul>
+        {visible.map((item, idx) => <li key={idx}>{itemLabel(item)}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+function CostBreakdown({ items }: { items?: Array<Record<string, unknown>> }) {
+  const visible = (items ?? []).filter(Boolean).slice(0, 8);
+  if (visible.length === 0) return null;
+  return (
+    <div className="report-section">
+      <h4>비용 내역</h4>
+      <div className="cost-breakdown-list">
+        {visible.map((item, idx) => (
+          <div className="cost-breakdown-row" key={idx}>
+            <span>{displayValue(item.item ?? item.name ?? item.agent ?? `항목 ${idx + 1}`)}</span>
+            <strong>{displayValue(item.amount ?? item.cost ?? item.total_cost ?? item.value)}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MdContent({ text }: { text: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+function StructuredResponseCard({ data, fallback }: { data?: StructuredResponse | null; fallback: string }) {
+  const answerType = data?.answer_type ?? 'CHAT';
+  if (!data || answerType === 'CHAT') {
+    return <div className="assistant-text"><MdContent text={fallback} /></div>;
+  }
+
+  const titleMap: Record<string, string> = {
+    RAG_QA: '근거 기반 답변',
+    COST_REPORT: '추가비용 리포트',
+    RISK_REPORT: '리스크 리포트',
+    MISSING_INFO: '추가 정보가 필요합니다',
+  };
+  const summary = data.summary ?? {};
+
+  return (
+    <div className={`structured-card ${answerType.toLowerCase()}`}>
+      <div className="structured-card-header">
+        <span>{titleMap[answerType] ?? '분석 결과'}</span>
+        <small>{answerType}</small>
+      </div>
+
+      <div className="assistant-text structured-message">
+        <MdContent text={data.message || fallback} />
+      </div>
+
+      {(answerType === 'COST_REPORT' || answerType === 'RISK_REPORT') && (
+        <div className="summary-grid">
+          <div><span>총 추가비용</span><strong>{displayValue(summary.total_extra_cost)}</strong></div>
+          <div><span>리스크 수준</span><strong>{displayValue(summary.risk_level)}</strong></div>
+          <div><span>예상 지연</span><strong>{displayValue(summary.delay_days)}</strong></div>
+          <div><span>주요 원인</span><strong>{displayValue(summary.main_cause)}</strong></div>
+        </div>
+      )}
+
+      {answerType === 'COST_REPORT' && <CostBreakdown items={data.cost_breakdown} />}
+      <StructuredList title="세부 산출" items={data.calculation_details} />
+      <StructuredList title="근거" items={[...(data.evidence ?? []), ...(data.items ?? [])]} />
+      <StructuredList title="가정" items={data.assumptions} />
+      <StructuredList title="확인 필요" items={data.missing_info} />
+    </div>
+  );
+}
+
 function WeatherIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -478,11 +584,7 @@ export default function ChatArea({ convId, canWrite, messages, loadingMessages, 
                   {i === lastAssistantIdx && lastThinkSecs !== null && (
                     <div className="think-label">{lastThinkSecs}초 동안 생각함</div>
                   )}
-                  <div className="assistant-text">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-                      {msg.content}
-                    </ReactMarkdown>
-                  </div>
+                  <StructuredResponseCard data={msg.structured_response} fallback={msg.final_response || msg.content} />
                   <div className="action-bar">
                     <CopyButton text={msg.content}/>
                     {i === lastAssistantIdx && !loading && canWrite && (

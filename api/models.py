@@ -1,7 +1,7 @@
 """API 요청/응답 모델 (Pydantic)"""
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Any, Optional, List, Dict
 from datetime import datetime
 
 
@@ -62,6 +62,8 @@ class Message(BaseModel):
     conversation_id: str
     role: str
     content: str
+    final_response: Optional[str] = None
+    structured_response: Optional[Dict[str, Any]] = None
     agent: Optional[str] = None
     created_at: datetime
 

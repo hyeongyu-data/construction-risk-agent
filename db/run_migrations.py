@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""
-DB 마이그레이션 실행 스크립트
-- migrations/ 폴더의 SQL 파일들을 순서대로 실행
-"""
+"""Run SQL migrations in db/migrations in filename order."""
+
 import os
 import sys
-import psycopg2
 from pathlib import Path
+
+import psycopg2
 from dotenv import load_dotenv
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -22,7 +22,7 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
 
 def run_migrations():
-    """마이그레이션 파일 실행"""
+    """Execute all migration SQL files in lexical order."""
     try:
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -33,33 +33,29 @@ def run_migrations():
         )
         cursor = conn.cursor()
 
-        # 마이그레이션 파일 정렬 (001, 002, ... 순서)
         migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
-
         if not migration_files:
-            print("❌ 마이그레이션 파일을 찾을 수 없습니다.")
+            print("[ERROR] No migration files found.")
             sys.exit(1)
 
         for migration_file in migration_files:
-            print(f"실행 중: {migration_file.name}...")
-            with open(migration_file, 'r', encoding='utf-8') as f:
-                sql = f.read()
-
+            print(f"Running {migration_file.name}...")
+            sql = migration_file.read_text(encoding="utf-8")
             try:
                 cursor.execute(sql)
                 conn.commit()
-                print(f"✅ {migration_file.name} 완료")
+                print(f"[OK] {migration_file.name}")
             except Exception as e:
                 conn.rollback()
-                print(f"❌ {migration_file.name} 실패: {e}")
+                print(f"[FAIL] {migration_file.name}: {e}")
                 raise
 
         cursor.close()
         conn.close()
-        print("\n✅ 모든 마이그레이션이 완료되었습니다!")
+        print("\n[OK] All migrations completed.")
 
     except Exception as e:
-        print(f"❌ DB 연결 오류: {e}")
+        print(f"[ERROR] DB migration error: {e}")
         sys.exit(1)
 
 
