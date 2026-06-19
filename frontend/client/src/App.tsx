@@ -48,6 +48,7 @@ export default function App() {
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
   const initialLoadDoneRef = useRef(false);
+  const messagesCacheRef = useRef<Map<string, Message[]>>(new Map());
 
   const selectProject = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -143,8 +144,10 @@ export default function App() {
       if (projectConvsResult.status === 'fulfilled') setProjectConvs(projectConvsResult.value);
       else showToast('프로젝트 대화 목록을 불러오지 못했습니다.', 'error');
 
-      if (messagesResult.status === 'fulfilled') setMessages(messagesResult.value);
-      else showToast('메시지를 불러오지 못했습니다.', 'error');
+      if (messagesResult.status === 'fulfilled') {
+        setMessages(messagesResult.value);
+        if (initConvId) messagesCacheRef.current.set(initConvId, messagesResult.value);
+      } else showToast('메시지를 불러오지 못했습니다.', 'error');
 
       initialLoadDoneRef.current = true;
     }
@@ -177,9 +180,15 @@ export default function App() {
       setMessages(MOCK_MESSAGES[activeConvId] ?? []);
       return;
     }
+    const cached = messagesCacheRef.current.get(activeConvId);
+    if (cached) { setMessages(cached); return; }
     setLoadingMessages(true);
     fetchMessages(activeConvId)
-      .then(msgs => { setMessages(msgs); setLoadingMessages(false); })
+      .then(msgs => {
+        setMessages(msgs);
+        messagesCacheRef.current.set(activeConvId, msgs);
+        setLoadingMessages(false);
+      })
       .catch(() => { showToast('메시지를 불러오지 못했습니다.', 'error'); setLoadingMessages(false); });
   }, [activeConvId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -224,6 +233,7 @@ export default function App() {
   const handleQuickDelete = useCallback(async (convId: string) => {
     await deleteConversation(convId);
     setQuickConvs(prev => prev.filter(c => c.id !== convId));
+    messagesCacheRef.current.delete(convId);
     if (activeConvIdRef.current === convId) { selectConv(null); setMessages([]); }
   }, [selectConv]);
 
@@ -306,6 +316,7 @@ export default function App() {
   const handleMessagesUpdate = useCallback((newMessages: Message[]) => {
     setMessages(newMessages);
     const cid = activeConvIdRef.current;
+    if (cid) messagesCacheRef.current.set(cid, newMessages);
     if (!cid) return;
     const firstUser = newMessages.find(m => m.role === 'user');
     if (!firstUser) return;
