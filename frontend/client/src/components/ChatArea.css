@@ -272,6 +272,33 @@
 }
 .md-table tr:nth-child(even) td { background-color: #fafafa; }
 
+/* 인라인 코드 */
+.md-code-inline {
+  background: #f0f0f0;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12.5px;
+  color: #d63384;
+}
+
+/* 코드블록 */
+.md-pre {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.md-pre code {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #d4d4d4;
+  white-space: pre;
+}
+
 /* 생각한 시간 레이블 */
 .think-label {
   font-size: 12px;

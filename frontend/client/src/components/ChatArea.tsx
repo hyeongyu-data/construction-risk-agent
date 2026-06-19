@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Message, AgentType } from '../types';
 import { sendConvMessage, renameConversation } from '../api';
 import './ChatArea.css';
@@ -26,57 +28,21 @@ const AGENT_META: Record<AgentType, { label: string; color: string }> = {
   router:    { label: '라우터',         color: '#64748b' },
 };
 
-// ── Markdown 렌더러 ────────────────────────────
-function parseInline(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
-  let last = 0, m: RegExpExecArray | null;
-  while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[0].startsWith('**')) parts.push(<strong key={m.index}>{m[2]}</strong>);
-    else parts.push(<em key={m.index}>{m[3]}</em>);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
-}
-
-function renderMarkdown(text: string): React.ReactNode[] {
-  const lines = text.split('\n');
-  const result: React.ReactNode[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (/^---+$/.test(line.trim())) { result.push(<hr key={i} className="md-hr"/>); i++; continue; }
-    const h3 = line.match(/^###\s+(.*)/); const h2 = line.match(/^##\s+(.*)/); const h1 = line.match(/^#\s+(.*)/);
-    if (h3) { result.push(<h3 key={i} className="md-h3">{parseInline(h3[1])}</h3>); i++; continue; }
-    if (h2) { result.push(<h2 key={i} className="md-h2">{parseInline(h2[1])}</h2>); i++; continue; }
-    if (h1) { result.push(<h2 key={i} className="md-h2">{parseInline(h1[1])}</h2>); i++; continue; }
-    if (line.trim().startsWith('|') && i+1 < lines.length && lines[i+1].trim().match(/^\|[-| :]+\|$/)) {
-      const tl: string[] = [];
-      while (i < lines.length && lines[i].trim().startsWith('|')) { tl.push(lines[i]); i++; }
-      const headers = tl[0].split('|').filter(c => c.trim() !== '');
-      const rows = tl.slice(2).map(r => r.split('|').filter(c => c.trim() !== ''));
-      result.push(
-        <div key={`t-${i}`} className="md-table-wrap">
-          <table className="md-table">
-            <thead><tr>{headers.map((h,hi) => <th key={hi}>{parseInline(h.trim())}</th>)}</tr></thead>
-            <tbody>{rows.map((row,ri) => <tr key={ri}>{row.map((cell,ci) => <td key={ci}>{parseInline(cell.trim())}</td>)}</tr>)}</tbody>
-          </table>
-        </div>
-      );
-      continue;
-    }
-    const li = line.match(/^[-*]\s+(.*)/);
-    if (li) { result.push(<li key={i} className="md-li">{parseInline(li[1])}</li>); i++; continue; }
-    const bq = line.match(/^>\s+(.*)/);
-    if (bq) { result.push(<blockquote key={i} className="md-bq">{parseInline(bq[1])}</blockquote>); i++; continue; }
-    if (line.trim() === '') { result.push(<div key={i} className="md-gap"/>); i++; continue; }
-    result.push(<p key={i} className="md-p">{parseInline(line)}</p>);
-    i++;
-  }
-  return result;
-}
+// ── Markdown 컴포넌트 ──────────────────────────
+const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>['components'] = {
+  h1: ({ children }) => <h2 className="md-h2">{children}</h2>,
+  h2: ({ children }) => <h2 className="md-h2">{children}</h2>,
+  h3: ({ children }) => <h3 className="md-h3">{children}</h3>,
+  p:  ({ children }) => <p  className="md-p">{children}</p>,
+  li: ({ children }) => <li className="md-li">{children}</li>,
+  hr: () => <hr className="md-hr" />,
+  blockquote: ({ children }) => <blockquote className="md-bq">{children}</blockquote>,
+  table: ({ children }) => <div className="md-table-wrap"><table className="md-table">{children}</table></div>,
+  code: ({ inline, className, children }: any) =>
+    inline
+      ? <code className="md-code-inline">{children}</code>
+      : <pre className="md-pre"><code className={className}>{children}</code></pre>,
+};
 
 function formatTime(iso: string | undefined | null): string {
   if (!iso) return '';
@@ -454,7 +420,11 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
                   {i === lastAssistantIdx && lastThinkSecs !== null && (
                     <div className="think-label">{lastThinkSecs}초 동안 생각함</div>
                   )}
-                  <div className="assistant-text">{renderMarkdown(msg.content)}</div>
+                  <div className="assistant-text">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
                   <div className="action-bar">
                     <CopyButton text={msg.content}/>
                     {i === lastAssistantIdx && !loading && canWrite && (
