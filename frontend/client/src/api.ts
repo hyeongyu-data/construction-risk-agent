@@ -1,7 +1,7 @@
 import { AuthResponse, Project, ProjectCreateRequest, ProjectMember, ProjectRole, Conversation, Message } from './types';
 import { MOCK_MODE, mockSendMessage, mockFetchMembers, mockAddMember, mockRemoveMember } from './mockData';
 
-const BASE = '';
+const BASE = process.env.REACT_APP_API_BASE ?? '';
 
 // ── 401 핸들러 (토큰 만료 시 자동 로그아웃) ──────────────────
 let onUnauthorized: (() => void) | null = null;
