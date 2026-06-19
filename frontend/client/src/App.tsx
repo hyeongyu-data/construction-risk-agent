@@ -12,6 +12,7 @@ import {
   registerUnauthorizedHandler,
 } from './api';
 import { showToast } from './toast';
+import { Settings, loadSettings, saveSettings, applyTheme } from './settings';
 import {
   MOCK_MODE,
   MOCK_PROJECTS, MOCK_QUICK_CONVS, MOCK_PROJECT_CONVS, MOCK_MESSAGES,
@@ -31,6 +32,17 @@ export default function App() {
   const [messages, setMessages]               = useState<Message[]>([]);
   const [sidebarOpen, setSidebarOpen]         = useState(true);
   const [showOpenBtn, setShowOpenBtn]         = useState(false);
+  const [settings, setSettings]              = useState<Settings>(() => {
+    const s = loadSettings();
+    applyTheme(s.theme);
+    return s;
+  });
+
+  const handleSettingsChange = (s: Settings) => {
+    setSettings(s);
+    saveSettings(s);
+    applyTheme(s.theme);
+  };
 
   const activeConvIdRef = useRef<string | null>(null);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
@@ -344,6 +356,8 @@ export default function App() {
         onLogout={handleLogout}
         onGoHome={handleGoHome}
         isOpen={sidebarOpen}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
       />
 
       <ChatArea
@@ -353,6 +367,7 @@ export default function App() {
         onMessagesUpdate={handleMessagesUpdate}
         onNeedConv={handleNeedConv}
         onConvCreated={handleSelectConv}
+        settings={settings}
       />
     </div>
   );

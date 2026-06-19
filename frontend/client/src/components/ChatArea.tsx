@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Message, AgentType } from '../types';
+import { Settings } from '../settings';
 import { sendConvMessage, renameConversation } from '../api';
 import './ChatArea.css';
 
@@ -16,6 +17,7 @@ interface Props {
   onMessagesUpdate: (messages: Message[]) => void;
   onNeedConv: () => Promise<string>;
   onConvCreated: (id: string) => void;
+  settings: Settings;
 }
 
 // ── 에이전트 메타 ──────────────────────────────
@@ -149,7 +151,19 @@ const AGENT_CARDS = [
 ];
 
 // ── 메인 컴포넌트 ──────────────────────────────
-export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate, onNeedConv, onConvCreated }: Props) {
+const DETAIL_PREFIX: Record<Settings['detail'], string> = {
+  '간략': '[간략하게 핵심만 답변해줘] ',
+  '기본': '',
+  '상세': '[상세하게 자세히 답변해줘] ',
+};
+
+const UNIT_SUFFIX: Record<Settings['unit'], string> = {
+  '원': '',
+  '천원': ' (금액은 천원 단위로 표시해줘)',
+  '만원': ' (금액은 만원 단위로 표시해줘)',
+};
+
+export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate, onNeedConv, onConvCreated, settings }: Props) {
   const [input, setInput]                 = useState('');
   const [loading, setLoading]             = useState(false);
   const [thinkSecs, setThinkSecs]         = useState(0);
@@ -242,8 +256,9 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setLoading(true);
+    const apiContent = DETAIL_PREFIX[settings.detail] + userContent + UNIT_SUFFIX[settings.unit];
     try {
-      const reply = await sendConvMessage(targetConvId, userContent, ctrl.signal);
+      const reply = await sendConvMessage(targetConvId, apiContent, ctrl.signal);
       onMessagesUpdate([...optimisticMessages, reply]);
       if (optimisticMessages.length === 1) {
         const title = userContent.slice(0, 30) + (userContent.length > 30 ? '...' : '');
@@ -260,7 +275,7 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
       setLoading(false);
       abortRef.current = null;
     }
-  }, [onMessagesUpdate]);
+  }, [onMessagesUpdate, settings]);
 
   const handleRegenerate = useCallback(async () => {
     if (loading || !convId) return;

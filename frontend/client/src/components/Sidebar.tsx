@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Project, Conversation, ProjectCreateRequest } from '../types';
+import { Settings } from '../settings';
 import ProjectCreateModal from './ProjectCreateModal';
 import ProjectMembersModal from './ProjectMembersModal';
 import UserMenu from './UserMenu';
@@ -24,6 +25,8 @@ interface Props {
   onLogout: () => void;
   onGoHome: () => void;
   isOpen: boolean;
+  settings: Settings;
+  onSettingsChange: (s: Settings) => void;
 }
 
 
@@ -82,6 +85,7 @@ export default function Sidebar({
   onSelectProject, onCreateProject, onDeleteProject,
   onCreateProjectConv, onDeleteProjectConv,
   onClose, onLogout, onGoHome, isOpen,
+  settings, onSettingsChange,
 }: Props) {
   const [projectsOpen, setProjectsOpen]       = useState(true);
   const [quickOpen, setQuickOpen]             = useState(true);
@@ -323,7 +327,7 @@ export default function Sidebar({
       </div>
 
       {/* ── 푸터: 유저 메뉴 ── */}
-      <UserMenu user={user} onLogout={onLogout} />
+      <UserMenu user={user} onLogout={onLogout} settings={settings} onSettingsChange={onSettingsChange} />
     </aside>
     </>
   );
