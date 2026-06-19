@@ -14,6 +14,7 @@ interface Props {
   convId: string | null;
   canWrite: boolean;
   messages: Message[];
+  loadingMessages: boolean;
   onMessagesUpdate: (messages: Message[]) => void;
   onNeedConv: () => Promise<string>;
   onConvCreated: (id: string) => void;
@@ -163,7 +164,19 @@ const UNIT_SUFFIX: Record<Settings['unit'], string> = {
   '만원': ' (금액은 만원 단위로 표시해줘)',
 };
 
-export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate, onNeedConv, onConvCreated, settings }: Props) {
+function MessageSkeleton() {
+  return (
+    <div className="skeleton-wrap">
+      {[70, 45, 85, 55, 75].map((w, i) => (
+        <div key={i} className={`skeleton-row ${i % 2 === 0 ? 'left' : 'right'}`}>
+          <div className="skeleton-bubble" style={{ width: `${w}%` }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function ChatArea({ convId, canWrite, messages, loadingMessages, onMessagesUpdate, onNeedConv, onConvCreated, settings }: Props) {
   const [input, setInput]                 = useState('');
   const [loading, setLoading]             = useState(false);
   const [thinkSecs, setThinkSecs]         = useState(0);
@@ -179,7 +192,7 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
   const isNearBottomRef = useRef(true);
   const forceScrollNextRef = useRef(false);
   const pendingInitialScrollRef = useRef(true);
-  const isEmpty     = messages.length === 0 && !loading;
+  const isEmpty     = messages.length === 0 && !loading && !loadingMessages;
 
   const updateScrollState = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -422,7 +435,8 @@ export default function ChatArea({ convId, canWrite, messages, onMessagesUpdate,
     <main className="chat-area">
       <div className="messages-wrap">
         <div className="messages" ref={messagesContainerRef} onScroll={updateScrollState}>
-          {messages.map((msg, i) => (
+          {loadingMessages && <MessageSkeleton />}
+          {!loadingMessages && messages.map((msg, i) => (
             <div key={i} className={`message ${msg.role}`}>
               {msg.role === 'user' ? (
                 <div className="user-msg-wrap">

@@ -32,6 +32,7 @@ export default function App() {
   const [messages, setMessages]               = useState<Message[]>([]);
   const [sidebarOpen, setSidebarOpen]         = useState(true);
   const [showOpenBtn, setShowOpenBtn]         = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [settings, setSettings]              = useState<Settings>(() => {
     const s = loadSettings();
     applyTheme(s.theme);
@@ -176,9 +177,10 @@ export default function App() {
       setMessages(MOCK_MESSAGES[activeConvId] ?? []);
       return;
     }
+    setLoadingMessages(true);
     fetchMessages(activeConvId)
-      .then(setMessages)
-      .catch(() => showToast('메시지를 불러오지 못했습니다.', 'error'));
+      .then(msgs => { setMessages(msgs); setLoadingMessages(false); })
+      .catch(() => { showToast('메시지를 불러오지 못했습니다.', 'error'); setLoadingMessages(false); });
   }, [activeConvId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 대화 핸들러 ─────────────────────────────────────────────
@@ -368,6 +370,7 @@ export default function App() {
         convId={activeConvId}
         canWrite={activeConv?.can_write ?? true}
         messages={messages}
+        loadingMessages={loadingMessages}
         onMessagesUpdate={handleMessagesUpdate}
         onNeedConv={handleNeedConv}
         onConvCreated={handleSelectConv}
