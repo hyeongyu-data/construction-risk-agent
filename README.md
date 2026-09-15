@@ -121,3 +121,10 @@ cd agents/router && python chat.py
 포트폴리오 공개용으로 정리한 버전입니다. 실제 API Key·DB 접속 정보·원본 계약 문서·민감 데이터는
 포함하지 않습니다. 산정 결과는 의사결정 보조용이며, 실제 변경계약에는 발주처 기준·계약 조항 검토가
 필요합니다.
+
+
+## 프로젝트 발표 자료
+
+[소개·처리 흐름·대시보드 보기](docs/presentation/README.md) · [PDF](docs/presentation/project.pdf) · [PPT](docs/presentation/project.pptx)
+
+2026-09-15 기준 공개 코드와 검증 기록을 정리한 발표용 자료입니다.
